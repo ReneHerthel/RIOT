@@ -520,15 +520,13 @@ size_t gnrc_sixlowpan_iphc_decode(gnrc_pktsnip_t **dec_hdr, gnrc_pktsnip_t *pkt,
 }
 
 #ifdef MODULE_GNRC_SIXLOWPAN_IPHC_NHC
-inline static size_t iphc_nhc_udp_encode(gnrc_pktsnip_t *udp, ipv6_hdr_t *ipv6_hdr)
+inline static size_t iphc_nhc_udp_encode(gnrc_pktsnip_t *udp, ipv6_hdr_t *ipv6_hdr, gnrc_netif_hdr_t *netif_hdr)
 {
     udp_hdr_t *udp_hdr = udp->data;
     network_uint16_t *src_port = &(udp_hdr->src_port);
     network_uint16_t *dst_port = &(udp_hdr->dst_port);
     uint8_t *udp_data = udp->data;
     size_t nhc_len = 0;
-
-    /* TODO: Add support for elided checksum. */
 
     /* Compressing UDP ports, follow the same sequence as the linux kernel (nhc_udp module). */
     if (((byteorder_ntohs(*src_port) & NHC_UDP_4BIT_MASK) == NHC_UDP_4BIT_PORT) &&
@@ -537,16 +535,12 @@ inline static size_t iphc_nhc_udp_encode(gnrc_pktsnip_t *udp, ipv6_hdr_t *ipv6_h
         ipv6_hdr->nh = NHC_UDP_SD_ELIDED;
         udp_data[nhc_len++] = byteorder_ntohs(*dst_port) - NHC_UDP_4BIT_PORT +
                               ((byteorder_ntohs(*src_port) - NHC_UDP_4BIT_PORT) << 4);
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[0];
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[1];
     }
     else if ((byteorder_ntohs(*dst_port) & NHC_UDP_8BIT_MASK) == NHC_UDP_8BIT_PORT) {
         DEBUG("6lo iphc nhc: elide dst\n");
         ipv6_hdr->nh = NHC_UDP_S_INLINE;
         nhc_len += 2; /* keep src_port */
         udp_data[nhc_len++] = byteorder_ntohs(*dst_port) - NHC_UDP_8BIT_PORT;
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[0];
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[1];
     }
     else if ((byteorder_ntohs(*src_port) & NHC_UDP_8BIT_MASK) == NHC_UDP_8BIT_PORT) {
         DEBUG("6lo iphc nhc: elide src\n");
@@ -554,13 +548,19 @@ inline static size_t iphc_nhc_udp_encode(gnrc_pktsnip_t *udp, ipv6_hdr_t *ipv6_h
         udp_data[nhc_len++] = byteorder_ntohs(*src_port) - NHC_UDP_8BIT_PORT;
         udp_data[nhc_len++] = udp_hdr->dst_port.u8[0];
         udp_data[nhc_len++] = udp_hdr->dst_port.u8[1];
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[0];
-        udp_data[nhc_len++] = udp_hdr->checksum.u8[1];
     }
     else {
         DEBUG("6lo iphc nhc: src and dst inline\n");
         ipv6_hdr->nh = NHC_UDP_SD_INLINE;
         nhc_len = sizeof(udp_hdr_t) - 4; /* skip src + dst and elide length */
+    }
+
+    if (netif_hdr->flags & GNRC_NETIF_HDR_FLAGS_ELIDED_CHECKSUM) {
+        DEBUG("6lo iphc nhc: checksum elided\n");
+        ipv6_hdr->nh |= NHC_UDP_C_ELIDED;
+        /* Just skip the allocation of the checksum */
+    }
+    else {
         udp_data[nhc_len++] = udp_hdr->checksum.u8[0];
         udp_data[nhc_len++] = udp_hdr->checksum.u8[1];
     }
@@ -669,7 +669,7 @@ bool gnrc_sixlowpan_iphc_encode(gnrc_pktsnip_t *pkt)
     switch (ipv6_hdr->nh) {
 #ifdef MODULE_GNRC_SIXLOWPAN_IPHC_NHC
         case PROTNUM_UDP:
-            iphc_nhc_udp_encode(pkt->next->next, ipv6_hdr);
+            iphc_nhc_udp_encode(pkt->next->next, ipv6_hdr, netif_hdr);
             iphc_hdr[IPHC1_IDX] |= SIXLOWPAN_IPHC1_NH;
             nhc_comp = true;
             break;

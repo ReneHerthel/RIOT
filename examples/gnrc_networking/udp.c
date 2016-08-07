@@ -28,6 +28,15 @@
 #include "timex.h"
 #include "xtimer.h"
 
+/* Switch to 0 if you don't want to use netif header flags */
+#define USE_NETIF_HEADER_FLAGS (1)
+#if USE_NETIF_HEADER_FLAGS
+    #include "net/gnrc/netif.h"
+    #include "net/gnrc/netif/hdr.h"
+//    #include "net/gnrc/ipv6/netif.h"
+//    #include "net/gnrc/sixlowpan/netif.h"
+#endif
+
 static gnrc_netreg_entry_t server = { NULL, GNRC_NETREG_DEMUX_CTX_ALL, KERNEL_PID_UNDEF };
 
 
@@ -74,12 +83,44 @@ static void send(char *addr_str, char *port_str, char *data, unsigned int num,
             gnrc_pktbuf_release(udp);
             return;
         }
-        /* send packet */
+#if USE_NETIF_HEADER_FLAGS
+        /* allocate netif header */
+        kernel_pid_t ifs[GNRC_NETIF_NUMOF];
+        gnrc_netif_get(ifs);
+//        gnrc_ipv6_netif_t *ipv6_entry = gnrc_ipv6_netif_get(ifs[0]);
+//        ipv6_entry->flags = GNRC_IPV6_NETIF_FLAGS_SIXLOWPAN;
+//        gnrc_sixlowpan_netif_add(ifs[0], UINT16_MAX);
+        gnrc_netif_hdr_t netif_hdr;
+        gnrc_netif_hdr_init(&netif_hdr, 0, 0);
+        netif_hdr.if_pid = ifs[0];
+        printf("Info: Using netif header flags: ");
+
+    #if MODULE_GNRC_SIXLOWPAN_IPHC_ELIDED_CHECKSUM
+        netif_hdr.flags = GNRC_NETIF_HDR_FLAGS_ELIDED_CHECKSUM;
+        printf(" Elided Checksum ");
+    #else
+        puts("Error: unable to set netif header flags");
+        gnrc_pktbuf_release(ip);
+        return;
+    #endif
+        printf("\n");
+        gnrc_pktsnip_t *netif = gnrc_pktbuf_add(ip, &netif_hdr,
+                                                sizeof(netif_hdr),
+                                                GNRC_NETTYPE_NETIF);
+        /* send packet with netif header */
+        if (!gnrc_netapi_dispatch_send(GNRC_NETTYPE_UDP, GNRC_NETREG_DEMUX_CTX_ALL, netif)) {
+            puts("Error: unable to locate UDP thread");
+            gnrc_pktbuf_release(netif);
+            return;
+        }
+#else
+        /* send packet without netif header */
         if (!gnrc_netapi_dispatch_send(GNRC_NETTYPE_UDP, GNRC_NETREG_DEMUX_CTX_ALL, ip)) {
             puts("Error: unable to locate UDP thread");
             gnrc_pktbuf_release(ip);
             return;
         }
+#endif /* USE_NETIF_HEADER_FLAGS */
         /* access to `payload` was implicitly given up with the send operation above
          * => use temporary variable for output */
         printf("Success: send %u byte to [%s]:%u\n", payload_size, addr_str,

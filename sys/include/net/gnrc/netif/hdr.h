@@ -70,6 +70,16 @@ extern "C" {
  */
 
 /**
+ * @brief   TODO
+ *
+ * @details TODO
+ */
+#define GNRC_NETIF_HDR_FLAGS_ELIDED_CHECKSUM  (0x02)
+/**
+ * @}
+ */
+
+/**
  * @brief   Generic network interface header
  *
  * The link layer addresses included in this header are put in memory directly

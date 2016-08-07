@@ -30,7 +30,7 @@
 #include "net/inet_csum.h"
 
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 /**
@@ -103,7 +103,7 @@ static void _receive(gnrc_pktsnip_t *pkt)
     gnrc_pktsnip_t *udp, *ipv6;
     udp_hdr_t *hdr;
     uint32_t port;
-
+    printf("\n\n\t\t\t!! UDP - RECEIVE !!\n\n");
     /* mark UDP header */
     udp = gnrc_pktbuf_start_write(pkt);
     if (udp == NULL) {
@@ -202,8 +202,14 @@ static void _send(gnrc_pktsnip_t *pkt)
     /* fill in size field */
     hdr->length = byteorder_htons(gnrc_pkt_len(udp_snip));
 
+    /* check if netif header is present */
+    gnrc_nettype_t nettype = pkt->type;
+    if (pkt->type == GNRC_NETTYPE_NETIF) {
+        nettype = pkt->next->type; /* points to type of ip snip */
+    }
+
     /* and forward packet to the network layer */
-    if (!gnrc_netapi_dispatch_send(pkt->type, GNRC_NETREG_DEMUX_CTX_ALL, pkt)) {
+    if (!gnrc_netapi_dispatch_send(nettype, GNRC_NETREG_DEMUX_CTX_ALL, pkt)) {
         DEBUG("udp: cannot send packet: network layer not found\n");
         gnrc_pktbuf_release(pkt);
     }

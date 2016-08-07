@@ -18,6 +18,7 @@ USEMODULE += gnrc_netdev_default
 USEMODULE += auto_init_gnrc_netif
 # Specify the mandatory networking modules for IPv6 and UDP
 USEMODULE += gnrc_ipv6_router_default
+#USEMODULE += gnrc_sixlowpan_router_default
 USEMODULE += gnrc_udp
 # Add a routing protocol
 USEMODULE += gnrc_rpl
@@ -32,6 +33,16 @@ USEMODULE += shell_commands
 USEMODULE += ps
 USEMODULE += netstats_l2
 USEMODULE += netstats_ipv6
+
+# Add optional netdev2 modules to use 6LoWPAN
+#USEMODULE += gnrc_sixlowpan_default
+#USEMODULE += gnrc_netif
+#USEMODULE += gnrc_netdev2
+#USEMODULE += netdev2_test
+#USEMODULE += netdev2_tap
+
+# Add option to elide the UDP checksum via netif header flags
+USEMODULE += gnrc_sixlowpan_iphc_elided_checksum
 
 # Set a custom 802.15.4 channel if needed
 DEFAULT_CHANNEL ?= 26
