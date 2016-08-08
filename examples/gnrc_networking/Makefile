@@ -42,7 +42,7 @@ USEMODULE += netstats_ipv6
 #USEMODULE += netdev2_tap
 
 # Add option to elide the UDP checksum via netif header flags
-USEMODULE += gnrc_sixlowpan_iphc_elided_checksum
+#USEMODULE += gnrc_sixlowpan_iphc_elided_checksum
 
 # Set a custom 802.15.4 channel if needed
 DEFAULT_CHANNEL ?= 26

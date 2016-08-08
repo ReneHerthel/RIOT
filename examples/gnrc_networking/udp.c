@@ -29,7 +29,7 @@
 #include "xtimer.h"
 
 /* Switch to 0 if you don't want to use netif header flags */
-#define USE_NETIF_HEADER_FLAGS (1)
+#define USE_NETIF_HEADER_FLAGS (0)
 #if USE_NETIF_HEADER_FLAGS
     #include "net/gnrc/netif.h"
     #include "net/gnrc/netif/hdr.h"
