@@ -131,7 +131,7 @@ static uint32_t golay2412_matrix_mul(uint32_t _v,
     uint32_t i;
 
     for (i = 0; i < _n; i++) {
-        x <<= 1;
+        x <<= 1L;
         /* same as above, but exploit the fact that vectors are at
          * most 24 bits long */
         uint32_t p = _A[i] & _v;
@@ -146,7 +146,7 @@ static uint32_t golay2412_matrix_mul(uint32_t _v,
 static uint32_t golay2412_encode_symbol(uint32_t _sym_dec, const uint32_t *_A)
 {
     /* validate input */
-    assert(_sym_dec > (1 << 12));
+    assert(_sym_dec < (1L << 12));
 
     /* compute encoded/transmitted message: v = m*G */
     return golay2412_matrix_mul(_sym_dec, _A, 24);
@@ -155,7 +155,7 @@ static uint32_t golay2412_encode_symbol(uint32_t _sym_dec, const uint32_t *_A)
 /* search for p[i] such that w(v+p[i]) <= 2, return -1 on fail */
 static int8_t golay2412_parity_search(uint32_t _v, const uint32_t *_A)
 {
-    assert(_v < (1 << 12));
+    assert(_v < (1L << 12));
 
     uint8_t i;
     for (i = 0; i < 12; i++) {
@@ -220,7 +220,7 @@ static uint32_t golay2412_decode_symbol(uint32_t _sym_enc,
                    "u[%2i]]\n", s_index, s_index, s_index);
 #endif
             /* NOTE : uj = 1 << (12-j-1) */
-            e_hat = ((s ^ _A[s_index]) << 12) | (1 << (11 - s_index));
+            e_hat = ((s ^ _A[s_index]) << 12) | (1L << (11 - s_index));
         }
         else {
             /* step 4: compute s*P */
