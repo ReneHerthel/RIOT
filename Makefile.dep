@@ -744,9 +744,20 @@ ifneq (,$(filter conn_can,$(USEMODULE)))
 endif
 
 ifneq (,$(filter puf_sram,$(USEMODULE)))
+  FEATURES_REQUIRED += puf_sram
   USEMODULE += hashes
   USEMODULE += random
-  FEATURES_REQUIRED += puf_sram
+endif
+
+ifneq (,$(filter puf_sram_secret,$(USEMODULE)))
+  # ISR stack requirement might increas with increasing PUF length
+  CFLAGS += -DISR_STACKSIZE=1024
+  CFLAGS += -DECC_REPETITION_COUNT=11
+  FEATURES_REQUIRED += periph_eeprom
+  USEMODULE += puf_sram
+  USEMODULE += ecc_golay2412
+  USEMODULE += ecc_repetition
+  USEMODULE += crypto
 endif
 
 ifneq (,$(filter random,$(USEMODULE)))

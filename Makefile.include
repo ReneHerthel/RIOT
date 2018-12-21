@@ -689,6 +689,18 @@ cleanterm: $(TERMDEPS)
 	$(call check_cmd,$(TERMPROG),Terminal program)
 	$(TERMPROG) $(TERMFLAGS)
 
+flash-puf-helpergen:
+	$(Q)/usr/bin/env -i \
+		QUIET=$(QUIET)\
+		PATH=$(PATH) \
+		BOARD=$(BOARD) \
+		PORT=$(PORT) \
+		PUF_SRAM_GEN_HELPER=1 \
+	$(MAKE) --no-print-directory -C $(RIOTBASE)/tests/puf_sram flash
+
+puf-helpergen:
+	$(Q)$(RIOTTOOLS)/puf-sram/puf-sram.py
+
 list-ttys:
 	$(Q)$(RIOTTOOLS)/usb-serial/list-ttys.sh
 

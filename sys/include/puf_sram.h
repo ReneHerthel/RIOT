@@ -58,14 +58,62 @@
 extern "C" {
 #endif
 
-#include "hashes.h"
+#include <string.h>
+
 #include "thread.h"
+#include "hashes.h"
+#include "hashes/sha1.h"
+#include "crypto/helper.h"
 
 /**
- * @brief SRAM length considered for seeding
+ * @brief SRAM length considered for seed generation
  */
-#ifndef SEED_RAM_LEN
-#define SEED_RAM_LEN     (2048 / sizeof(uint32_t))
+#ifndef PUF_SRAM_SEED_RAM_LEN
+#define PUF_SRAM_SEED_RAM_LEN        (2048 / sizeof(uint32_t))
+#endif
+
+/**
+ * @brief length of the random code offset for secret generation
+          during enrollment. This value determines the helper data
+          length and thus, it affects the PUF length. The PUF lenght
+          itself affects the secrecy of the generated ID.
+ */
+#ifndef PUF_SRAM_SECRET_LEN
+#define PUF_SRAM_SECRET_LEN          (6)
+#endif
+
+/**
+ * @brief length of the encoded secret with golay(24, 12)
+ */
+#define PUF_SRAM_GOLAY_LEN           (2 * PUF_SRAM_SECRET_LEN)
+
+/**
+ * @brief Number of repetitions for the repetition encoder
+ *        definded in Makefile.dep to configure the repetition
+ *        coder during compile time
+ */
+#define PUF_SRAM_REP_COUNT           (ECC_REPETITION_COUNT)
+
+/**
+ * @brief length of the double encoded secret with
+          repetition(PUF_SRAM_REP_COUNT, 1, PUF_SRAM_REP_COUNT)
+ */
+#define PUF_SRAM_HELPER_LEN          (PUF_SRAM_REP_COUNT * PUF_SRAM_GOLAY_LEN)
+
+/**
+ * @brief start position in non-volatile eeprom memory on which the
+          public helper data set was stored during enrollment
+ */
+#define PUF_SRAM_HELPER_EEPROM_START (0)
+
+/**
+ * @brief offset in SRAM memory after a secret was generated via
+          @p puf_sram_generate_secret
+ */
+#ifdef MODULE_PUF_SRAM_SECRET
+#define PUF_SRAM_SEED_OFFSET         (PUF_SRAM_HELPER_EEPROM_START)
+#else
+#define PUF_SRAM_SEED_OFFSET         (0)
 #endif
 
 /**
@@ -73,7 +121,8 @@ extern "C" {
  *
  * Source: https://www.random.org/bytes/
  */
-#define PUF_SRAM_MARKER  (0xad3021ff)
+#define PUF_SRAM_MARKER              (0xad3021ff)
+
 
 /**
  * @brief Global seed variable, allocated in puf_sram.c
@@ -89,6 +138,13 @@ extern uint32_t puf_sram_seed;
  */
 extern uint32_t puf_sram_state;
 
+#if defined(MODULE_PUF_SRAM_SECRET) || defined(DOXYGEN)
+ /**
+ * @brief Global secret ID, allocated in puf_sram.c
+ */
+extern uint8_t puf_sram_id[SHA1_DIGEST_LENGTH];
+#endif
+
 /**
  * @brief Counter variable allocated in puf_sram.c. It is incremented
           during each soft reset when no new PUF measurement was taken
@@ -98,22 +154,47 @@ extern uint32_t puf_sram_softreset_cnt;
 
 /**
  * @brief checks source of reboot by @p puf_sram_softreset and conditionally
-          calls @p puf_sram_generate
+ *        calls @p puf_sram_generate. If program is compiled with PUF_SRAM_GEN_HELPER
+ *        this function copies the measured PUF response to the end of the RAM for
+ *        helper data generation which is needed for reliable secret generation.
  *
- * @param[in] ram pointer to SRAM memory
- * @param[in] len length of the memory to consider
+ * @param[in] ram pointer to beginning of considered SRAM memory
+ * @param[in] ram2 pointer to end of SRAM memory
+ * @param[in] len length of the memroy to consider
  *
  */
-void puf_sram_init(const uint8_t *ram, size_t len);
+void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len);
 
 /**
- * @brief builds hash from @p SEED_RAM_LEN bytes uninitialized SRAM, writes it
- *        to the global variable @p puf_sram_seed and returns the value
+ * @brief builds seed from @p PUF_SRAM_SEED_RAM_LEN bytes uninitialized SRAM,
+ *        and writes it to the global variable @p puf_sram_seed
  *
  * @param[in] ram pointer to SRAM memory
  * @param[in] len length of the memory to consider
  */
-void puf_sram_generate(const uint8_t *ram, size_t len);
+void puf_sram_generate_seed(const uint8_t *ram, size_t len);
+
+#if defined(MODULE_PUF_SRAM_SECRET) || defined(DOXYGEN)
+/**
+ * @brief builds secret from @p PUF_SRAM_HELPER_LEN bytes uninitialized SRAM.
+ *        This method utilizes a helper data set from non-volatile memory which
+          needs to be generated for each device during enrollment
+ *
+ * @param[in] ram pointer to SRAM memory
+ */
+void puf_sram_generate_secret(const uint8_t *ram);
+
+/**
+ * @brief This function overwrites the PUF based secret variable @p puf_sram_id. It should
+          be called as soon as possible afer the secret was used.
+ */
+static inline void puf_sram_delete_secret(void)
+{
+    /* TODO: make sure this isn't optimized out by the compiler */
+    crypto_secure_wipe(puf_sram_id,sizeof(puf_sram_id));
+}
+
+#endif /* defined(MODULE_PUF_SRAM_SECRET) || defined(DOXYGEN) */
 
 /**
  * @brief checks for a memory marker to determine whether memory contains old data.

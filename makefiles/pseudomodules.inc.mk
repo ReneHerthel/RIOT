@@ -73,6 +73,7 @@ PSEUDOMODULES += printf_float
 PSEUDOMODULES += prng
 PSEUDOMODULES += prng_%
 PSEUDOMODULES += qmc5883l_int
+PSEUDOMODULES += puf_sram_secret
 PSEUDOMODULES += riotboot_%
 PSEUDOMODULES += saul_adc
 PSEUDOMODULES += saul_default

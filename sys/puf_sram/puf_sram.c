@@ -17,6 +17,10 @@
  * @}
  */
 #include "puf_sram.h"
+#include "ecc/golay2412.h"
+#include "ecc/repetition.h"
+#include "hashes/sha1.h"
+#include "periph/eeprom.h"
 
 /* Allocation of the PUF seed variable */
 PUF_SRAM_ATTRIBUTES uint32_t puf_sram_seed;
@@ -30,14 +34,78 @@ PUF_SRAM_ATTRIBUTES uint32_t puf_sram_softreset_cnt;
 /* Allocation of the memory marker */
 PUF_SRAM_ATTRIBUTES uint32_t puf_sram_marker;
 
-void puf_sram_init(const uint8_t *ram, size_t len)
+#ifdef MODULE_PUF_SRAM_SECRET
+/* Allocation of the secret ID memory. Set to 0 as soon as posisble! */
+PUF_SRAM_ATTRIBUTES uint8_t puf_sram_id[SHA1_DIGEST_LENGTH];
+#endif
+
+
+void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len)
 {
+
+#ifdef PUF_SRAM_GEN_HELPER
+    (void)len;
+
+    /* save memory pattern by copying to end of RAM */
+    uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
+
+    /* misuse seed variable to save location of copied puf response */
+    puf_sram_seed = (uint32_t)dst;
+    for (unsigned i = 0; i < (PUF_SRAM_HELPER_LEN / sizeof(uint32_t)); i++){
+        *(dst++) = ((uint32_t *)ram)[i];
+    }
+#else
+    (void)ram2;
+
     /* generates a new seed value if power cycle was detected */
     if (!puf_sram_softreset()) {
-        puf_sram_generate(ram, len);
+
+#ifdef MODULE_PUF_SRAM_SECRET
+        puf_sram_generate_secret(ram);
+#endif
+
+        puf_sram_generate_seed(ram + PUF_SRAM_SEED_OFFSET, len);
     }
+#endif
 }
-void puf_sram_generate(const uint8_t *ram, size_t len)
+
+#ifdef MODULE_PUF_SRAM_SECRET
+void puf_sram_generate_secret(const uint8_t *ram)
+{
+    static uint8_t helper[PUF_SRAM_HELPER_LEN];
+
+    uint8_t fuzzy_io[sizeof(helper)];
+    uint8_t rep_dec[PUF_SRAM_GOLAY_LEN];
+    uint8_t golay_dec[PUF_SRAM_SECRET_LEN];
+
+    /* get public helper data from non-volatile memory */
+    eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+
+    for(unsigned i=0; i<sizeof(helper); i++) {
+        fuzzy_io[i] = helper[i] ^ ram[i];
+    }
+
+    /* correct the noisy fuzzy_io by decoding ECCs */
+    repetition_decode(sizeof(rep_dec), &fuzzy_io[0], &rep_dec[0]);
+    golay2412_decode(sizeof(golay_dec), &rep_dec[0], &golay_dec[0]);
+
+    /* encode again to generate a corrected PUF response */
+    golay2412_encode(sizeof(golay_dec), &golay_dec[0], &rep_dec[0]);
+    repetition_encode(sizeof(rep_dec), &rep_dec[0], &fuzzy_io[0]);
+
+    for(unsigned i=0; i<sizeof(helper); i++) {
+        fuzzy_io[i] ^= helper[i];
+    }
+
+    /* generate ID by hashing corrected PUF response */
+    sha1_context ctx;
+    sha1_init(&ctx);
+    sha1_update(&ctx, fuzzy_io, sizeof(fuzzy_io));
+    sha1_final(&ctx, puf_sram_id);
+}
+#endif /* defined(MODULE_PUF_SRAM_SECRET) */
+
+void puf_sram_generate_seed(const uint8_t *ram, size_t len)
 {
     /* build hash from start-up pattern */
     puf_sram_seed = dek_hash(ram, len);

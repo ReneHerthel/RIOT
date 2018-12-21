@@ -95,7 +95,7 @@ void reset_handler_default(void)
     const uint32_t *src = &_etext;
 
 #ifdef MODULE_PUF_SRAM
-    puf_sram_init((uint8_t *)&_srelocate, SEED_RAM_LEN);
+    puf_sram_init((uint8_t *)&_srelocate, (uint8_t *)&_eram, PUF_SRAM_SEED_RAM_LEN);
 #endif
 
     pre_startup();
