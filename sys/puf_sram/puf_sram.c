@@ -76,7 +76,7 @@ void puf_sram_generate_secret(const uint8_t *ram)
 
     uint8_t fuzzy_io[sizeof(helper)];
     uint8_t rep_dec[PUF_SRAM_GOLAY_LEN];
-    uint8_t golay_dec[PUF_SRAM_SECRET_LEN];
+    uint8_t golay_dec[PUF_SRAM_CODEOFFSET_LEN];
 
     /* get public helper data from non-volatile memory */
     eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
