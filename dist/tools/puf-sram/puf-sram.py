@@ -76,12 +76,15 @@ def calc_mle_puf(data):
 
 if __name__ == "__main__":
 
-    # default values for external FTDT can be overwritten
+    # default values for external FTDI can be overwritten
     helper_port = os.getenv('PORT2', '/dev/ttyUSB0')
     helper_baud = os.getenv('BAUD2', 115200)
     helper_off_reps = os.getenv('REPS', 3)
     helper_offtime = os.getenv('OFFTIME', 1)
     helper_print = os.getenv('PRINT', 1)
+
+    # default value for code offset
+    code_offset = os.getenv('CODEOFFSET', 6)
 
     # calc max. likely PUF response based on multiple mesurements
     puf_sram = puf_sram_if.PufSram(port=helper_port, baud=helper_baud)
@@ -90,7 +93,7 @@ if __name__ == "__main__":
     puf_reference = calc_mle_puf(puf_responses)
 
     # generate random code offset
-    bytes = random.sample(range(0, 255), 6)
+    bytes = random.sample(range(0, 255), code_offset)
 
     # golay
     enc_buf = coder1(bytes)
