@@ -12,6 +12,14 @@ import numpy
 import os
 import sys
 
+from os import environ
+from os.path import abspath, join, dirname
+
+RIOTBASE = environ.get('RIOTBASE') or \
+        abspath(join(dirname(abspath(__file__)), '../', '../', '../'))
+
+APP_PATH = RIOTBASE + '/dist/tools/puf-sram'
+
 DEFAULT_POWER_CYCLES = 500
 DEFAULT_OFF_TIME = 1
 DEFAULT_BAUDRATE = 115200
@@ -93,6 +101,6 @@ def main_func():
         print("ID error probability  : %02.02f perc. " % error_prob)
 
 if __name__ == "__main__":
-    sys.path.append(os.path.join('../../dist/tools/puf-sram'))
+    sys.path.append(os.path.join(APP_PATH))
     import puf_sram_if
     main_func()
