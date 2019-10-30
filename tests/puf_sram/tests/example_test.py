@@ -12,6 +12,8 @@ import numpy
 import os
 import sys
 
+from sys import path as sys_path
+
 from os import environ
 from os.path import abspath, join, dirname
 
@@ -101,6 +103,6 @@ def main_func():
         print("ID error probability  : %02.02f perc. " % error_prob)
 
 if __name__ == "__main__":
-    sys.path.append(os.path.join(APP_PATH))
+    sys_path.append(join(APP_PATH))
     import puf_sram_if
     main_func()
