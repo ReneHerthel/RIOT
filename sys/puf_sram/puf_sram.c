@@ -22,6 +22,11 @@
 #include "hashes/sha1.h"
 #include "periph/eeprom.h"
 
+/* TODO: REMOVE ME */
+PUF_SRAM_ATTRIBUTES uint8_t codeoffset_debug[6];
+PUF_SRAM_ATTRIBUTES uint8_t ram_debug[PUF_SRAM_HELPER_LEN];
+PUF_SRAM_ATTRIBUTES uint8_t helper_debug[PUF_SRAM_HELPER_LEN];
+
 /* Allocation of the PUF seed variable */
 PUF_SRAM_ATTRIBUTES uint32_t puf_sram_seed;
 
@@ -36,10 +41,8 @@ PUF_SRAM_ATTRIBUTES uint32_t puf_sram_marker;
 PUF_SRAM_ATTRIBUTES uint8_t puf_sram_id[SHA1_DIGEST_LENGTH];
 #endif
 
-
 void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len)
 {
-
 #ifdef PUF_SRAM_GEN_HELPER
     (void)len;
 
@@ -78,6 +81,16 @@ void puf_sram_generate_secret(const uint8_t *ram)
     /* get public helper data from non-volatile memory */
     eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
 
+    // TODO: Remove. Only for debug
+    for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
+        helper_debug[i] = helper[i];
+    }
+
+    // TODO: Remove. Only for debug.
+    for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
+        ram_debug[i] = ram[i];
+    }
+
     for(unsigned i=0; i<sizeof(helper); i++) {
         fuzzy_io[i] = helper[i] ^ ram[i];
     }
@@ -85,6 +98,11 @@ void puf_sram_generate_secret(const uint8_t *ram)
     /* correct the noisy fuzzy_io by decoding ECCs */
     repetition_decode(sizeof(rep_dec), &fuzzy_io[0], &rep_dec[0]);
     golay2412_decode(sizeof(golay_dec), &rep_dec[0], &golay_dec[0]);
+
+    /* TODO: REMOVE ME */
+    for (unsigned i = 0; i < 6; i++) {
+        codeoffset_debug[i] = golay_dec[i];
+    }
 
     /* encode again to generate a corrected PUF response */
     golay2412_encode(sizeof(golay_dec), &golay_dec[0], &rep_dec[0]);
