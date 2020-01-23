@@ -192,7 +192,7 @@ extern "C" {
           itself affects the secrecy of the generated ID.
  */
 #ifndef PUF_SRAM_CODEOFFSET_LEN
-#define PUF_SRAM_CODEOFFSET_LEN      (6)
+#define PUF_SRAM_CODEOFFSET_LEN      (6) // Bytes
 #endif
 
 /**
@@ -235,6 +235,12 @@ extern "C" {
  * Source: https://www.random.org/bytes/
  */
 #define PUF_SRAM_MARKER              (0xad3021ff)
+
+/* TODO: Remove. Only for debug. */
+extern uint8_t codeoffset_debug[6];
+extern uint8_t ram_debug[PUF_SRAM_HELPER_LEN];
+extern uint8_t helper_debug[PUF_SRAM_HELPER_LEN];
+
 
 
 /**
