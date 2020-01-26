@@ -31,47 +31,61 @@
 #include "ecc/repetition.h"
 #include "periph/eeprom.h"
 
+/* The position in eeprom to write the helper gen flag. */
 #define GEN_FLAG_EEPROM_POS     (PUF_SRAM_HELPER_LEN + 1)
 
 static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 {
     printf("%s\n", title);
-    printf("\n[");
+    printf("[");
     for (unsigned i = 0; i < len; i++) {
         /*if (i % 10 == 0) {
             printf("\n");
         }*/
-
         if (i == (len - 1)) {
             printf("0x%02x", buf[i]);
         } else {
             printf("0x%02x, ", buf[i]);
         }
     }
-    printf("]\n");
+    printf("]\n\n");
 }
 
-static inline void _set_gen_flag(void)
+static inline void _set_helper_gen_flag(void)
 {
-    uint8_t data[1] = {1};
-    printf("_set_gen_flag()\n");
-    eeprom_write(GEN_FLAG_EEPROM_POS, data, 1);
+    static uint8_t eeprom_io[1] = {1};
+    eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+    puts("Helper flag set.");
 }
 
-static inline void _clr_gen_flag(void)
+static inline void _clr_helper_gen_flag(void)
 {
-    uint8_t data[1] = {0};
-    printf("_clr_gen_flag()\n");
-    eeprom_write(GEN_FLAG_EEPROM_POS, data, 1);
+    static uint8_t eeprom_io[1] = {0};
+    eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+    puts("Helper flag cleared.");
 }
 
-static inline bool _read_gen_flag(void)
+static inline bool _read_helper_gen_flag(void)
 {
-    uint8_t data[1] = {0};
-    printf("_read_gen_flag()\n");
-    eeprom_read(GEN_FLAG_EEPROM_POS, data, 1);
-    printf("flag: %d\n", data[0]);
-    return (data[0] == 1) ? true : false;
+    static uint8_t eeprom_io[1] = {0};
+    eeprom_read(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+    return (eeprom_io[0] == 1) ? true : false;
+}
+
+static inline void _reconstruction(void)
+{
+    // TODO:
+    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
+
+    puf_sram_generate_secret(ref_mes);
+
+    puts("Secret generated.");
+
+    //_print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug(puf_sram.c):");
+
+    _print_buf(puf_sram_id, sizeof(puf_sram_id), "REC - puf_sram_id:");
+
+    _print_buf(codeoffset_debug, 6, "REC - codeoffset_debug:");
 }
 
 static inline void _enrollment(void)
@@ -79,11 +93,9 @@ static inline void _enrollment(void)
     static uint8_t helper[PUF_SRAM_HELPER_LEN] = {0};
     static uint8_t golay[PUF_SRAM_GOLAY_LEN] = {0};
     static uint8_t repetition[PUF_SRAM_HELPER_LEN] = {0};
-    /* XXX: Fixed values for debug purposes. Will change later. */
+    /* TODO: Fixed values for debug purposes. Will change later. */
     static uint8_t bytes[PUF_SRAM_CODEOFFSET_LEN] = {1, 1, 1, 1, 1, 1};
-
-    puts("_enrollment() - start");
-    printf("puf_sram_seed: [0x%08lX]\n", puf_sram_seed);
+    //random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
 
     /* TODO: Add support for multiple iterations.
           - Sum up in binary representation (if needed)
@@ -93,13 +105,8 @@ static inline void _enrollment(void)
           Just hold it simple for the moment.
           dist/tools/puf-sram/puf_sram.py:56 */
     //uint32_t mle_response = puf_sram_seed;
-    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
-    /* Write random bytes in range(0, 255) into bytes.
-       NOTE: seed generated on sys/random/random.c:49 with
-       random_init(puf_sram_seed).
-       XXX: Fixed values are used ATM. */
-    //random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
+    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
     golay2412_encode(PUF_SRAM_CODEOFFSET_LEN, bytes, golay);
 
@@ -109,95 +116,75 @@ static inline void _enrollment(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    _print_buf(ref_mes, PUF_SRAM_HELPER_LEN, "ENR - ref_mes:");
-
-    /* Save the generated helper data to non-volatile memory.
-       NOTE: For the moment, it is restricted to EEPROM. */
     eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
 
-    _print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper:");
+    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
 
-    puts("_enrollment() - done");
+    //_print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper(read):");
+
+    puts("Helper data generated and saved in eeprom.");
 }
 
-static inline void _reconstruction(void)
-{
-    puts("_reconstruction() - start");
-
-    printf("ID [0x");
-
-    for (unsigned i = 0; i < sizeof(puf_sram_id); i++){
-        printf("%x", puf_sram_id[i]);
-    }
-
-    printf("]\n");
-
-    printf("Codeoffset:\n");
-
-    for (unsigned i = 0; i < 6; i++) {
-        printf("[%d] = %d\n", i, codeoffset_debug[i]);
-    }
-
-    puts("_reconstruction() - done");
-}
-
-static int cmd_gen_set(int argc, char **argv)
+static int cmd_helper_flag_set(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    _set_gen_flag();
+    _set_helper_gen_flag();
     return 0;
 }
 
-static int cmd_gen_clr(int argc, char **argv)
+static int cmd_helper_flag_clr(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    _clr_gen_flag();
+    _clr_helper_gen_flag();
     return 0;
 }
 
-static int cmd_gen_read(int argc, char **argv)
+static int cmd_helper_flag_read(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    _read_gen_flag();
+    printf("Helper flag set? [%s]\n", ((_read_helper_gen_flag() == true) ? "True" : "False"));
+    return 0;
+}
+
+static int cmd_gen_key(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    _reconstruction();
     return 0;
 }
 
 static const shell_command_t shell_commands[] = {
-    { "set", "Generate helper data on next coldboot", cmd_gen_set },
-    { "clr", "Clear eeprom flag", cmd_gen_clr },
-    { "read", "read eeprom flag", cmd_gen_read },
+    { "set", "Set EEPROM helper-gen-flag.", cmd_helper_flag_set },
+    { "clr", "Clear EEPROM helper-gen-flag.", cmd_helper_flag_clr },
+    { "read", "Read EEPROM helper-gen-flag.", cmd_helper_flag_read },
+    { "key", "Generate a secret key.", cmd_gen_key },
     { NULL, NULL, NULL }
 };
 
 int main(void)
 {
-    puts("\nRIOT/tests/puf-sram-node/");
-
 #ifdef PUF_SRAM_GEN_HELPER
-    printf("PUF_SRAM_GEN_HELPER\n");
-    if (_read_gen_flag()) {
+    if (_read_helper_gen_flag()) {
+        puts("Previous set helper gen flag detected.");
         _enrollment();
-        _clr_gen_flag();
+        _clr_helper_gen_flag();
     }
 #else
 
 #ifdef MODULE_PUF_SRAM_SECRET
-    printf("MODULE_PUF_SRAM_SECRET\n");
+    puts("MODULE_PUF_SRAM_SECRET");
     _reconstruction();
-
-    // TODO: Remove. Only for debug.
-    _print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug:");
-    _print_buf(ram_debug, PUF_SRAM_HELPER_LEN, "REC - ram_debug:");
+    puf_sram_delete_secret();
+    puts("Secret deleted.");
 #endif
 
 #endif
-
-    /* run the shell */
+    /* Run the shell. */
     char line_buf[SHELL_DEFAULT_BUFSIZE];
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
-
     return 0;
 }
