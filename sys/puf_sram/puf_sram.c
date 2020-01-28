@@ -20,7 +20,10 @@
 #include "ecc/golay2412.h"
 #include "ecc/repetition.h"
 #include "hashes/sha1.h"
-#include "periph/eeprom.h"
+
+#if USE_MEM_EEPROM
+//#include "periph/eeprom.h"
+#endif
 
 /* TODO: REMOVE ME */
 PUF_SRAM_ATTRIBUTES uint8_t codeoffset_debug[6];
@@ -47,11 +50,13 @@ PUF_SRAM_ATTRIBUTES uint8_t puf_sram_id[SHA1_DIGEST_LENGTH];
 void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len)
 {
     /* Read from eeprom and save in 'global' array for debugging. */
+    /*
     static uint8_t helper[PUF_SRAM_HELPER_LEN];
     eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
     for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
         helper_debug[i] = helper[i];
     }
+    */
 
     /* Save memory pattern to end of RAM. */
     uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
@@ -106,7 +111,7 @@ void puf_sram_generate_secret(const uint8_t *ram)
     uint8_t golay_dec[PUF_SRAM_CODEOFFSET_LEN];
 
     /* get public helper data from non-volatile memory */
-    eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
 
     // TODO: Remove. Only for debug
     for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
