@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 HAW Hamburg
+ * Copyright (C) 2020 HAW Hamburg
  *
  * This file is subject to the terms and conditions of the GNU Lesser
  * General Public License v2.1. See the file LICENSE in the top level
@@ -29,7 +29,14 @@
 #include "random.h"
 #include "ecc/golay2412.h"
 #include "ecc/repetition.h"
-#include "periph/eeprom.h"
+
+/* Specify which non volatile memory should be used to provide data, like
+   helper data over power cycles. */
+#ifdef USE_MEM_EEPROM
+//#include "periph/eeprom.h"
+#elif USE_MEM_N25Q128A
+// TODO: Include n25q128a driver support.
+#endif
 
 /* The position in eeprom to write the helper gen flag. */
 #define GEN_FLAG_EEPROM_POS     (PUF_SRAM_HELPER_LEN + 1)
@@ -54,32 +61,58 @@ static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 static inline void _set_helper_gen_flag(void)
 {
     static uint8_t eeprom_io[1] = {1};
-    eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+#ifdef USE_MEM_EEPROM
+    //eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+#elif USE_MEM_N25Q128A
+    // TODO:
+#else
+    puts("No non-volatile-memory defined");
+#endif
+    (void)eeprom_io;
     puts("Helper flag set.");
 }
 
 static inline void _clr_helper_gen_flag(void)
 {
     static uint8_t eeprom_io[1] = {0};
-    eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+
+    /* Decide, which non volatile memory should be used. */
+#ifdef USE_MEM_EEPROM
+    //eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+#elif USE_MEM_N25Q128A
+    // TODO:
+#else
+    puts("No non-volatile-memory defined");
+#endif
+    (void)eeprom_io;
     puts("Helper flag cleared.");
 }
 
 static inline bool _read_helper_gen_flag(void)
 {
     static uint8_t eeprom_io[1] = {0};
-    eeprom_read(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+
+    /* Decide, which non volatile memory should be used. */
+#ifdef USE_MEM_EEPROM
+    //eeprom_read(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
+#elif USE_MEM_N25Q128A
+    // TODO:
+#else
+    puts("No non-volatile-memory defined");
+#endif
+    (void)eeprom_io;
     return (eeprom_io[0] == 1) ? true : false;
 }
 
 static inline void _reconstruction(void)
 {
     // TODO:
-    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
+    //uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
-    puf_sram_generate_secret(ref_mes);
+    // TODO: This function uses EEPROM. Change it.
+    //puf_sram_generate_secret(ref_mes);
 
-    puts("Secret generated.");
+    //puts("Secret generated.");
 
     //_print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug(puf_sram.c):");
 
@@ -116,13 +149,18 @@ static inline void _enrollment(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-
-    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-
-    //_print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper(read):");
-
+    /* Decide, which non volatile memory should be used. */
+#ifdef USE_MEM_EEPROM
+    //eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
     puts("Helper data generated and saved in eeprom.");
+#elif USE_MEM_N25Q128A
+    // TODO:
+#else
+    puts("No non-volatile-memory defined");
+#endif
+    (void)helper;
+    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+    //_print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper(read):");
 }
 
 static int cmd_helper_flag_set(int argc, char **argv)
