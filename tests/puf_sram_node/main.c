@@ -24,22 +24,28 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#include "board.h"
 #include "puf_sram.h"
 #include "shell.h"
 #include "random.h"
 #include "ecc/golay2412.h"
 #include "ecc/repetition.h"
 
-/* Specify which non volatile memory should be used to provide data, like
-   helper data over power cycles. */
-#ifdef USE_MEM_EEPROM
-//#include "periph/eeprom.h"
-#elif USE_MEM_N25Q128A
-// TODO: Include n25q128a driver support.
+/* TODO: The iotlab-m3 takes a while for prints, so we delay the 'start' a bit. */
+#include "xtimer.h"
+#include "timex.h"
+
+#ifdef USE_EEPROM
+#include "periph/eeprom.h"
+#define GEN_FLAG_EEPROM_POS         (PUF_SRAM_HELPER_LEN + 1)
 #endif
 
-/* The position in eeprom to write the helper gen flag. */
-#define GEN_FLAG_EEPROM_POS     (PUF_SRAM_HELPER_LEN + 1)
+#ifdef USE_N25Q128
+#include "n25q128.h"
+static n25q128_dev_t n25q128;
+#define HELPER_N25Q128_START        (0)
+#define HELPER_FLAG_N25Q128_POS     (500)
+#endif
 
 static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 {
@@ -60,61 +66,75 @@ static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 
 static inline void _set_helper_gen_flag(void)
 {
-    static uint8_t eeprom_io[1] = {1};
-#ifdef USE_MEM_EEPROM
-    //eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
-#elif USE_MEM_N25Q128A
-    // TODO:
+    static uint8_t flag[1] = {1};
+
+#ifdef USE_EEPROM
+    puts("eeprom_write");
+    eeprom_write(GEN_FLAG_EEPROM_POS, flag, 1);
 #else
+
+  #ifdef USE_N25Q128
+    puts("n25q_128_page_program");
+    n25q128_page_program(&n25q128, HELPER_FLAG_N25Q128_POS, flag, 1);
+  #else
     puts("No non-volatile-memory defined");
+    (void)flag;
+  #endif
+
 #endif
-    (void)eeprom_io;
+
     puts("Helper flag set.");
 }
 
 static inline void _clr_helper_gen_flag(void)
 {
-    static uint8_t eeprom_io[1] = {0};
+    static uint8_t flag[1] = {0};
 
-    /* Decide, which non volatile memory should be used. */
-#ifdef USE_MEM_EEPROM
-    //eeprom_write(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
-#elif USE_MEM_N25Q128A
-    // TODO:
+#ifdef USE_EEPROM
+    eeprom_write(GEN_FLAG_EEPROM_POS, flag, 1);
 #else
-    puts("No non-volatile-memory defined");
+
+  #ifdef USE_N25Q128
+    (void)flag;
+    //n25q128_page_program(&n25q128, HELPER_FLAG_N25Q128_POS, flag, 1);
+    n25q128_sector_erase(&n25q128, HELPER_FLAG_N25Q128_POS);
+  #endif
+
 #endif
-    (void)eeprom_io;
+
     puts("Helper flag cleared.");
 }
 
 static inline bool _read_helper_gen_flag(void)
 {
-    static uint8_t eeprom_io[1] = {0};
+    static uint8_t flag[1] = {0};
 
-    /* Decide, which non volatile memory should be used. */
-#ifdef USE_MEM_EEPROM
-    //eeprom_read(GEN_FLAG_EEPROM_POS, eeprom_io, 1);
-#elif USE_MEM_N25Q128A
-    // TODO:
+#ifdef USE_EEPROM
+    eeprom_read(GEN_FLAG_EEPROM_POS, flag, 1);
 #else
-    puts("No non-volatile-memory defined");
+
+  #ifdef USE_N25Q128
+    n25q128_read_data_bytes(&n25q128, HELPER_FLAG_N25Q128_POS, flag, 1);
+  #else
+    (void)flag;
+  #endif
+
 #endif
-    (void)eeprom_io;
-    return (eeprom_io[0] == 1) ? true : false;
+
+    return (flag[0] == 1) ? true : false;
 }
 
 static inline void _reconstruction(void)
 {
     // TODO:
-    //uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
+    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
     // TODO: This function uses EEPROM. Change it.
-    //puf_sram_generate_secret(ref_mes);
+    puf_sram_generate_secret(ref_mes);
 
-    //puts("Secret generated.");
+    puts("Secret generated.");
 
-    //_print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug(puf_sram.c):");
+    _print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug(puf_sram.c):");
 
     _print_buf(puf_sram_id, sizeof(puf_sram_id), "REC - puf_sram_id:");
 
@@ -124,6 +144,7 @@ static inline void _reconstruction(void)
 static inline void _enrollment(void)
 {
     static uint8_t helper[PUF_SRAM_HELPER_LEN] = {0};
+    static uint8_t helper_read[PUF_SRAM_HELPER_LEN] = {0};
     static uint8_t golay[PUF_SRAM_GOLAY_LEN] = {0};
     static uint8_t repetition[PUF_SRAM_HELPER_LEN] = {0};
     /* TODO: Fixed values for debug purposes. Will change later. */
@@ -149,18 +170,23 @@ static inline void _enrollment(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    /* Decide, which non volatile memory should be used. */
-#ifdef USE_MEM_EEPROM
-    //eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+#ifdef USE_EEPROM
+    eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
     puts("Helper data generated and saved in eeprom.");
-#elif USE_MEM_N25Q128A
-    // TODO:
 #else
-    puts("No non-volatile-memory defined");
+
+  #ifdef USE_N25Q128
+    n25q128_page_program(&n25q128, HELPER_N25Q128_START, helper, PUF_SRAM_HELPER_LEN);
+    puts("Helper data generated and saved in n25q128 flash memory.");
+  #endif
+
 #endif
-    (void)helper;
-    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-    //_print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper(read):");
+    _print_buf(helper, PUF_SRAM_HELPER_LEN, "ENR - helper(write):");
+
+#ifdef USE_N25Q128
+    n25q128_read_data_bytes(&n25q128, HELPER_N25Q128_START, helper_read, PUF_SRAM_HELPER_LEN);
+    _print_buf(helper_read, PUF_SRAM_HELPER_LEN, "ENR - helper(read):");
+#endif
 }
 
 static int cmd_helper_flag_set(int argc, char **argv)
@@ -195,21 +221,70 @@ static int cmd_gen_key(int argc, char **argv)
     return 0;
 }
 
+static int cmd_bulk_erase(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    puts("Bulk erase the n25q128 flash memory. This takes about ~250 seconds!");
+    n25q128_bulk_erase(&n25q128);
+    return 0;
+}
+
+static int cmd_sector_erase(int argc, char **argv)
+{
+    int addr = 0;
+    if (argc < 1) {
+        printf("usage: %s <address of the sector>\n", argv[0]);
+        return 1;
+    }
+    addr = atoi(argv[1]);
+    n25q128_sector_erase(&n25q128, addr);
+    puts("Erased the sector of the given address.");
+    return 0;
+}
+
 static const shell_command_t shell_commands[] = {
     { "set", "Set EEPROM helper-gen-flag.", cmd_helper_flag_set },
     { "clr", "Clear EEPROM helper-gen-flag.", cmd_helper_flag_clr },
     { "read", "Read EEPROM helper-gen-flag.", cmd_helper_flag_read },
     { "key", "Generate a secret key.", cmd_gen_key },
+    { "be", "Erase the whole memory (n25q128). Takes ~250 seconds!", cmd_bulk_erase },
+    { "se", "Erase the given sector (n25q128)", cmd_sector_erase },
     { NULL, NULL, NULL }
 };
 
 int main(void)
 {
+    /* Just sleep a second, because the UART is a bit to slow (for prints). */
+    xtimer_sleep(3);
+
+    puts("Application: puf_sram_node");
+
+#ifdef USE_N25Q128
+    printf("Configure and initialize the n25q128 flash memory.. ");
+
+    n25q128.conf.bus = EXTFLASH_SPI;
+    n25q128.conf.mode = SPI_MODE_0;
+    n25q128.conf.clk = SPI_CLK_100KHZ;
+    n25q128.conf.cs = EXTFLASH_CS;
+    n25q128.conf.write = EXTFLASH_WRITE;
+    n25q128.conf.hold = EXTFLASH_HOLD;
+
+    if (n25q128_init(&n25q128) == 0) {
+        printf("OK\n");
+    } else {
+        printf("FAIL\n");
+    }
+#endif
+
 #ifdef PUF_SRAM_GEN_HELPER
-    if (_read_helper_gen_flag()) {
+    puts("PUF_SRAM_GEN_HELPER");
+    if (_read_helper_gen_flag() == true) {
         puts("Previous set helper gen flag detected.");
         _enrollment();
         _clr_helper_gen_flag();
+    } else {
+        puts("No helper-gen-flag detected.");
     }
 #else
 
@@ -221,8 +296,9 @@ int main(void)
 #endif
 
 #endif
-    /* Run the shell. */
+
     char line_buf[SHELL_DEFAULT_BUFSIZE];
     shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
+
     return 0;
 }
