@@ -5,15 +5,19 @@ include ../Makefile.tests_common
 USEMODULE += puf_sram
 USEMODULE += puf_sram_secret
 USEMODULE += shell
+# Give the device a moment to run UART for prints
+USEMODULE += xtimer
 
 ifneq (,$(filter nucleo-%,$(BOARD)))
 	USEMODULE += periph_eeprom
-	CFLAGS += -DUSE_MEM_EEPROM=1
+	CFLAGS += -DUSE_EEPROM=1
 endif
 
 ifneq (,$(filter iotlab-m3,$(BOARD)))
+	FEATURES_REQUIRED += periph_spi
+	#USEMODULE += periph_spi
 	# TODO: USEMODULE += n25q128a
-	CFLAGS += -DUSE_MEM_N25Q128A=1
+	CFLAGS += -DUSE_N25Q128=1
 endif
 
 #ifneq (,$(PUF_SRAM_GEN_HELPER))

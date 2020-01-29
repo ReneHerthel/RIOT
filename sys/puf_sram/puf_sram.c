@@ -21,8 +21,15 @@
 #include "ecc/repetition.h"
 #include "hashes/sha1.h"
 
-#if USE_MEM_EEPROM
-//#include "periph/eeprom.h"
+#ifdef USE_EEPROM
+#include "periph/eeprom.h"
+#else
+
+#ifdef USE_N25Q128
+#include "board.h"
+#include "n25q128.h"
+#endif
+
 #endif
 
 /* TODO: REMOVE ME */
@@ -107,8 +114,25 @@ void puf_sram_generate_secret(const uint8_t *ram)
     uint8_t rep_dec[PUF_SRAM_GOLAY_LEN];
     uint8_t golay_dec[PUF_SRAM_CODEOFFSET_LEN];
 
+
     /* get public helper data from non-volatile memory */
-    //eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+#ifdef USE_EEPROM
+    eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
+#else
+
+#ifdef USE_N25Q128
+    /* XXX: The device in the main has the same configuration. */
+    static n25q128_dev_t n25q128;
+    n25q128.conf.bus = EXTFLASH_SPI;
+    n25q128.conf.mode = SPI_MODE_0;
+    n25q128.conf.clk = SPI_CLK_100KHZ;
+    n25q128.conf.cs = EXTFLASH_CS;
+    n25q128.conf.write = EXTFLASH_WRITE;
+    n25q128.conf.hold = EXTFLASH_HOLD;
+    n25q128_read_data_bytes(&n25q128, 0, helper, PUF_SRAM_HELPER_LEN);
+#endif
+
+#endif
 
     // TODO: Remove. Only for debug
     for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {

@@ -644,6 +644,11 @@ ifneq (,$(filter puf_sram_secret,$(USEMODULE)))
     FEATURES_REQUIRED += periph_eeprom
   endif
 
+  # The iotlab-m3 only supports a n25q128 flash memory
+  ifneq (,&(filter iotlab-m3,$(BOARD)))
+    USEMODULE += n25q128
+  endif
+
   USEMODULE += puf_sram
   USEMODULE += ecc_golay2412
   USEMODULE += ecc_repetition
