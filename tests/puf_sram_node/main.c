@@ -43,8 +43,8 @@
 #ifdef USE_N25Q128
 #include "n25q128.h"
 static n25q128_dev_t n25q128;
-#define HELPER_N25Q128_START        (0)
-#define HELPER_FLAG_N25Q128_POS     (500)
+#define HELPER_N25Q128_START        (0x0)
+#define HELPER_FLAG_N25Q128_POS     (0x20000)
 #endif
 
 static inline void _print_buf(uint8_t *buf, size_t len, char *title)
@@ -126,18 +126,14 @@ static inline bool _read_helper_gen_flag(void)
 
 static inline void _reconstruction(void)
 {
-    // TODO:
+    // TODO: Same like in the _enrollment.
     uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
-    // TODO: This function uses EEPROM. Change it.
     puf_sram_generate_secret(ref_mes);
-
     puts("Secret generated.");
 
     _print_buf(helper_debug, PUF_SRAM_HELPER_LEN, "REC - helper_debug(puf_sram.c):");
-
     _print_buf(puf_sram_id, sizeof(puf_sram_id), "REC - puf_sram_id:");
-
     _print_buf(codeoffset_debug, 6, "REC - codeoffset_debug:");
 }
 
@@ -213,6 +209,23 @@ static int cmd_helper_flag_read(int argc, char **argv)
     return 0;
 }
 
+static int cmd_show_helper_data(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    static uint8_t buf[PUF_SRAM_HELPER_LEN] = {0};
+    puts("show_helper_data:");
+
+#ifdef USE_N25Q128
+    n25q128_read_data_bytes(&n25q128, HELPER_N25Q128_START, buf, PUF_SRAM_HELPER_LEN);
+    _print_buf(buf, PUF_SRAM_HELPER_LEN, "show_helper_data:");
+#else
+    (void)buf;
+#endif
+
+    return 0;
+}
+
 static int cmd_gen_key(int argc, char **argv)
 {
     (void)argc;
@@ -247,6 +260,7 @@ static const shell_command_t shell_commands[] = {
     { "set", "Set EEPROM helper-gen-flag.", cmd_helper_flag_set },
     { "clr", "Clear EEPROM helper-gen-flag.", cmd_helper_flag_clr },
     { "read", "Read EEPROM helper-gen-flag.", cmd_helper_flag_read },
+    { "show", "Shows helper data", cmd_show_helper_data },
     { "key", "Generate a secret key.", cmd_gen_key },
     { "be", "Erase the whole memory (n25q128). Takes ~250 seconds!", cmd_bulk_erase },
     { "se", "Erase the given sector (n25q128)", cmd_sector_erase },
@@ -255,7 +269,7 @@ static const shell_command_t shell_commands[] = {
 
 int main(void)
 {
-    /* Just sleep a second, because the UART is a bit to slow (for prints). */
+    /* Just sleep a few seconds, because the UART is a bit to slow (for prints). */
     xtimer_sleep(3);
 
     puts("Application: puf_sram_node");
@@ -263,6 +277,7 @@ int main(void)
 #ifdef USE_N25Q128
     printf("Configure and initialize the n25q128 flash memory.. ");
 
+    /* XXX: Configuration specifically for iotlab-m3 nodes. */
     n25q128.conf.bus = EXTFLASH_SPI;
     n25q128.conf.mode = SPI_MODE_0;
     n25q128.conf.clk = SPI_CLK_100KHZ;
