@@ -53,6 +53,47 @@ PUF_SRAM_ATTRIBUTES uint8_t puf_sram_id[SHA1_DIGEST_LENGTH];
 
 void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len)
 {
+    // save memory pattern by copying to end of RAM
+    uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
+
+    puf_sram_seed = (uint32_t)dst;
+
+    // misuse seed variable to save location of copied puf response
+    for (unsigned i = 0; i < (PUF_SRAM_HELPER_LEN / sizeof(uint32_t)); i++){
+        *(dst++) = ((uint32_t *)ram)[i];
+    }
+
+    // Check for power cycle.
+    if (!puf_sram_softreset()) {
+        puf_sram_generate_seed(ram + PUF_SRAM_SEED_OFFSET, len);
+    }
+/*
+#ifdef PUF_SRAM_GEN_HELPER
+    (void)len;
+
+    // save memory pattern by copying to end of RAM
+    uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
+
+    // misuse seed variable to save location of copied puf response
+    puf_sram_seed = (uint32_t)dst;
+    for (unsigned i = 0; i < (PUF_SRAM_HELPER_LEN / sizeof(uint32_t)); i++){
+        *(dst++) = ((uint32_t *)ram)[i];
+    }
+#else
+    (void)ram2;
+
+    // generates a new seed value if power cycle was detected
+    if (!puf_sram_softreset()) {
+
+#ifdef MODULE_PUF_SRAM_SECRET
+        puf_sram_generate_secret(ram);
+#endif
+
+        puf_sram_generate_seed(ram + PUF_SRAM_SEED_OFFSET, len);
+    }
+#endif
+*/
+
     /* Read from eeprom and save in 'global' array for debugging. */
     /*
     static uint8_t helper[PUF_SRAM_HELPER_LEN];
@@ -62,47 +103,18 @@ void puf_sram_init(const uint8_t *ram, const uint8_t *ram2, size_t len)
     }
     */
 
-    /* Save memory pattern to end of RAM. */
+    /* Save memory pattern to end of RAM
     uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
     puf_sram_seed = (uint32_t)dst;
     for (unsigned i = 0; i < (PUF_SRAM_HELPER_LEN / sizeof(uint32_t)); i++){
         *(dst++) = ((uint32_t *)ram)[i];
     }
 
-    /* Check for power cycle. */
+     Check for power cycle.
     if (!puf_sram_softreset()) {
         puf_sram_generate_seed(ram + PUF_SRAM_SEED_OFFSET, len);
     }
-
-/*
-#ifdef PUF_SRAM_GEN_HELPER
-    (void)len;
-    // save memory pattern by copying to end of RAM
-    uint32_t *dst = (uint32_t *)(ram2-PUF_SRAM_HELPER_LEN);
-    // misuse seed variable to save location of copied puf response
-    puf_sram_seed = (uint32_t)dst;
-    for (unsigned i = 0; i < (PUF_SRAM_HELPER_LEN / sizeof(uint32_t)); i++){
-        *(dst++) = ((uint32_t *)ram)[i];
-    }
-#else
-    (void)ram2;
-    // generates a new seed value if power cycle was detected
-    if (!puf_sram_softreset()) {
-        // TODO: revert this changes:
-        static uint8_t helper[PUF_SRAM_HELPER_LEN];
-        // get public helper data from non-volatile memory
-        eeprom_read(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-        // TODO: Remove. Only for debug
-        for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
-            helper_debug[i] = helper[i];
-        }
-#ifdef MODULE_PUF_SRAM_SECRET
-        puf_sram_generate_secret(ram);
-#endif
-        puf_sram_generate_seed(ram + PUF_SRAM_SEED_OFFSET, len);
-    }
-#endif
-*/
+    */
 }
 
 #ifdef MODULE_PUF_SRAM_SECRET
@@ -132,17 +144,15 @@ void puf_sram_generate_secret(const uint8_t *ram)
     n25q128_read_data_bytes(&n25q128, 0, helper, PUF_SRAM_HELPER_LEN);
 #endif
 
-#endif
-
     // TODO: Remove. Only for debug
     for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
         helper_debug[i] = helper[i];
     }
-
-    // TODO: Remove. Only for debug.
     for (unsigned i = 0; i < PUF_SRAM_HELPER_LEN; i++) {
         ram_debug[i] = ram[i];
     }
+
+#endif
 
     for(unsigned i=0; i<sizeof(helper); i++) {
         fuzzy_io[i] = helper[i] ^ ram[i];

@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "periph_cpu_common.h"
 #include "periph_conf.h"
 #include "board.h"
 #include "ecc/repetition.h"
@@ -48,8 +49,8 @@
 #ifdef USE_N25Q128
 #include "n25q128.h"
 static n25q128_dev_t n25q128;
-#define HELPER_N25Q128_START        (0x0)
-#define HELPER_FLAG_N25Q128_POS     (0x20000)
+#define HELPER_N25Q128_ADDR        (0x0)
+#define FLAG_N25Q128_ADDR     (0x20000)
 #endif
 
 /* Just to increment the seconds of the RTC. */
@@ -85,7 +86,7 @@ static inline void _set_flag(void)
     (void)flag;
 
 #ifdef USE_N25Q128
-    n25q128_page_program(&n25q128, HELPER_FLAG_N25Q128_POS, flag, 1);
+    n25q128_page_program(&n25q128, FLAG_N25Q128_ADDR, flag, 1);
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
@@ -101,7 +102,7 @@ static inline void _clear_flag(void)
 #else
     (void)flag;
 #ifdef USE_N25Q128
-    n25q128_sector_erase(&n25q128, HELPER_FLAG_N25Q128_POS);
+    n25q128_sector_erase(&n25q128, FLAG_N25Q128_ADDR);
 #endif
 #endif
 
@@ -118,7 +119,7 @@ static inline int _is_flag_set(void)
     (void)flag;
 
 #ifdef USE_N25Q128
-    n25q128_read_data_bytes(&n25q128, HELPER_FLAG_N25Q128_POS, flag, 1);
+    n25q128_read_data_bytes(&n25q128, FLAG_N25Q128_ADDR, flag, 1);
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
@@ -126,21 +127,9 @@ static inline int _is_flag_set(void)
     return (flag[0] == 1);
 }
 
-static inline void _reconstruction(void)
-{
-    // TODO: Same like in the _enrollment.
-    uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
-
-    puf_sram_generate_secret(ref_mes);
-
-    _print_buf(puf_sram_id, sizeof(puf_sram_id), "ID:");
-    _print_buf(codeoffset_debug, 6, "CODEOFFSET:");
-}
-
-static inline void _enrollment(void)
+static inline void _gen_helper_data(void)
 {
     static uint8_t helper[PUF_SRAM_HELPER_LEN] = {0};
-    static uint8_t helper_read[PUF_SRAM_HELPER_LEN] = {0};
     static uint8_t golay[PUF_SRAM_GOLAY_LEN] = {0};
     static uint8_t repetition[PUF_SRAM_HELPER_LEN] = {0};
     /* TODO: Fixed values for debug purposes. Will change later. */
@@ -174,50 +163,146 @@ static inline void _enrollment(void)
 #else
 
 #ifdef USE_N25Q128
-    n25q128_page_program(&n25q128, HELPER_N25Q128_START, helper, PUF_SRAM_HELPER_LEN);
+    n25q128_page_program(&n25q128, HELPER_N25Q128_ADDR, helper, PUF_SRAM_HELPER_LEN);
     puts("Helper data written into N25Q128");
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
 }
 
-static int cmd_flag(int argc, char **argv)
+static int cmd_helper(int argc, char **argv)
 {
+
     if (argc < 2 || argc > 2) {
-        puts("usage: flag {set|clear|show}");
+        puts("usage: helper {show|erase}");
         return 1;
     }
 
-    if (strcmp(argv[1], "set") == 0) {
-        _set_flag();
+    if (strcmp(argv[1], "show") == 0) {
+#ifdef USE_EEPROM
+        // TODO: Support for EEPROM.
+#else
+
+#ifdef USE_N25Q128
+        static uint8_t mem_io[PUF_SRAM_HELPER_LEN] = {0};
+        n25q128_read_data_bytes(&n25q128, HELPER_N25Q128_ADDR, mem_io, PUF_SRAM_HELPER_LEN);
+        _print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
+#endif /* USE_N25Q128 */
+
+#endif /* USE_EEPROM */
     } else if (strcmp(argv[1], "clear") == 0) {
-        _clear_flag();
-    } else if (strcmp(argv[1], "show") == 0) {
-        printf("Flag enabled? %s\n", ((_is_flag_set() == true) ? "True" : "False"));
+#ifdef USE_EEPROM
+        // TODO: Support for EEPROM.
+#else
+
+#ifdef USE_N25Q128
+        /* Erase the *whole* sector of the given address. */
+        n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
+        /* addr: 0x0 - 0xFFFF is the first sector (0)*/
+        printf("Sector on address <0x%08x> cleared!\n", HELPER_N25Q128_ADDR);
+#endif /* USE_N25Q128 */
+
+#endif /* USE_EEPROM */
     } else {
-        puts("usage: flag {set|clear|show}");
+        puts("usage: helper {show|erase}");
         return 1;
     }
 
     return 0;
 }
 
-static int cmd_show_helper_data(int argc, char **argv)
+static int cmd_enroll(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    static uint8_t buf[PUF_SRAM_HELPER_LEN] = {0};
+    struct tm time = {
+        .tm_year = 2020 - 1900,   /* years are counted from 1900 */
+        .tm_mon  = 1,             /* 0 = January, 11 = December */
+        .tm_mday = 1,
+        .tm_hour = 1,
+        .tm_min  = 1,
+        .tm_sec  = 1
+    };
 
-#ifdef USE_N25Q128
-    n25q128_read_data_bytes(&n25q128, HELPER_N25Q128_START, buf, PUF_SRAM_HELPER_LEN);
-    _print_buf(buf, PUF_SRAM_HELPER_LEN, "show_helper_data:");
-#else
-    (void)buf;
-#endif
+    puts("Set flag for next power cycle helper generation");
+    _set_flag();
+
+    puts("Set alarm for the RTC to wake up from standby");
+    rtc_set_time(&time);
+    inc_secs(&time, 4); // add few seconds to 'time'
+    rtc_set_alarm(&time, 0, 0); // no callback or arg
+
+    puts("Going into standby now");
+    pm_set(STM32_PM_STANDBY);
 
     return 0;
 }
 
+static int cmd_id(int argc, char **argv)
+{
+    if (argc > 2 || argc < 2) {
+        puts("usage: id {show|gen}");
+        return 1;
+    }
+
+    if (strcmp(argv[1], "show") == 0) {
+        _print_buf(puf_sram_id, sizeof(puf_sram_id), "ID:");
+        _print_buf(codeoffset_debug, 6, "CODEOFFSET:");
+    } else if (strcmp(argv[1], "gen") == 0) {
+        // TODO: (uint8_t *)&puf_sram_seed needs to be optimized.
+        puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
+        puts("Secret generated.");
+    } else {
+        puts("usage: id {show|gen}");
+        return 1;
+    }
+
+    return 0;
+}
+
+static const shell_command_t shell_commands[] = {
+    { "enroll", "Trigger the enrollment phase", cmd_enroll },
+    { "helper", "Shows or clear the helper data", cmd_helper },
+    { "id", "Generates or show the ID (need to enroll before!)", cmd_id },
+    { NULL, NULL, NULL }
+};
+
+int main(void)
+{
+    /* Sleep a few seconds to wait for settig up the UART. */
+    xtimer_sleep(2);
+
+    puts("Application: puf_sram_node");
+
+#ifdef USE_N25Q128
+    /* XXX: Specific configuration for iotlab-m3 nodes. */
+    n25q128.conf.bus = EXTFLASH_SPI;
+    n25q128.conf.mode = SPI_MODE_0;
+    n25q128.conf.clk = SPI_CLK_100KHZ;
+    n25q128.conf.cs = EXTFLASH_CS;
+    n25q128.conf.write = EXTFLASH_WRITE;
+    n25q128.conf.hold = EXTFLASH_HOLD;
+    printf("Init N25Q128 -> %s\n", ((n25q128_init(&n25q128) == 0) ? "OK" : "FAIL"));
+#endif
+
+//#ifdef PUF_SRAM_GEN_HELPER
+    /* The flag is only set in previous power cycle. For example before the
+       device is going into standby. */
+    if (_is_flag_set()) {
+        puts("Flag detected");
+        _gen_helper_data();
+        _clear_flag();
+    }
+//#endif /* PUF_SRAM_GEN_HELPER */
+
+    /* Running the shell. */
+    char line_buf[SHELL_DEFAULT_BUFSIZE];
+    shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
+
+    return 0;
+}
+
+/*
 static int cmd_bulk_erase(int argc, char **argv)
 {
     (void)argc;
@@ -229,7 +314,9 @@ static int cmd_bulk_erase(int argc, char **argv)
 
     return 0;
 }
+*/
 
+/*
 static int cmd_sector_erase(int argc, char **argv)
 {
     int addr = 0;
@@ -247,83 +334,14 @@ static int cmd_sector_erase(int argc, char **argv)
 
     return 0;
 }
-
-static int cmd_enroll(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    if (!_is_flag_set()) {
-        struct tm time = {
-            .tm_year = 2020 - 1900,   /* years are counted from 1900 */
-            .tm_mon  = 1,             /* 0 = January, 11 = December */
-            .tm_mday = 1,
-            .tm_hour = 1,
-            .tm_min  = 1,
-            .tm_sec  = 1
-        };
-        puts("Enable flag for next power cycle helper generation");
-        _set_flag();
-        puts("Enable alarm for the RTC to wake up from standby");
-        rtc_set_time(&time);
-        inc_secs(&time, 2);
-        rtc_set_alarm(&time, 0, 0);
-        puts("Going into standby now");
-        pm_set(0);
-    }
-
-    return 0;
-}
-
-static int cmd_recon(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    _reconstruction();
-
-    return 0;
-}
-
-static const shell_command_t shell_commands[] = {
-    { "flag", "[set|clear|show] the helper gen status flag", cmd_flag },
-    { "show", "Shows helper data", cmd_show_helper_data },
-    { "be", "Erase the whole memory (n25q128). Takes ~250 seconds!", cmd_bulk_erase },
-    { "se", "Erase the given sector (n25q128)", cmd_sector_erase },
-    { "enroll", "Trigger the enrollment process", cmd_enroll },
-    { "recon", "Trigger the reconstruction process", cmd_recon },
-    { NULL, NULL, NULL }
-};
-
-int main(void)
-{
-    xtimer_sleep(2);
-
-    puts("Application: puf_sram_node");
-
-#ifdef USE_N25Q128
-    n25q128.conf.bus = EXTFLASH_SPI;
-    n25q128.conf.mode = SPI_MODE_0;
-    n25q128.conf.clk = SPI_CLK_100KHZ;
-    n25q128.conf.cs = EXTFLASH_CS;
-    n25q128.conf.write = EXTFLASH_WRITE;
-    n25q128.conf.hold = EXTFLASH_HOLD;
-    printf("Init N25Q128 -> %s\n", ((n25q128_init(&n25q128) == 0) ? "OK" : "FAIL"));
-#endif
-
-    /* */
-    if (_is_flag_set()) {
-        puts("Previous power cycle flag detected");
-        _enrollment();
-        _clear_flag();
-    }
+*/
 
 /*
 #ifdef PUF_SRAM_GEN_HELPER
     puts("PUF_SRAM_GEN_HELPER");
     if (_is_flag_set() == true) {
         puts("Previous set helper gen flag detected.");
-        _enrollment();
+        _gen_helper_data();
         _clear_flag();
     } else {
         puts("No helper-gen-flag detected.");
@@ -340,8 +358,30 @@ int main(void)
 #endif
 */
 
-    char line_buf[SHELL_DEFAULT_BUFSIZE];
-    shell_run(shell_commands, line_buf, SHELL_DEFAULT_BUFSIZE);
+//{ "flag", "[show] the helper gen status flag", cmd_flag },
+//{ "be", "Erase the whole memory (n25q128). Takes ~250 seconds!", cmd_bulk_erase },
+//{ "se", "Erase the given sector (n25q128)", cmd_sector_erase },
+
+/*
+static int cmd_flag(int argc, char **argv)
+{
+    if (argc < 2 || argc > 2) {
+        puts("usage: flag {set|clear|show}");
+        return 1;
+    }
+
+    if (strcmp(argv[1], "set") == 0) {
+        //_set_flag();
+        // This is done in the enrollment phase already.
+    } else if (strcmp(argv[1], "clear") == 0) {
+        _clear_flag();
+    } else if (strcmp(argv[1], "show") == 0) {
+        printf("Flag enabled? %s\n", ((_is_flag_set() == true) ? "True" : "False"));
+    } else {
+        puts("usage: flag {set|clear|show}");
+        return 1;
+    }
 
     return 0;
 }
+*/
