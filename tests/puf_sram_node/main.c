@@ -61,7 +61,7 @@ static inline void _print_buf(uint8_t *buf, size_t len, char *title)
     printf("\n%s\n", title);
 
     /* Formated for working with python scripts. */
-    printf("[");
+    printf("\t[");
 
     for (unsigned i = 0; i < len; i++) {
         if (i == (len - 1)) {
@@ -90,7 +90,7 @@ static inline void _set_flag(void)
 
 #endif /* USE_EEPROM */
 
-    puts("Flag set");
+    puts("\t- Flag set");
 }
 
 /* @brief   Clears the helper-gen flag. */
@@ -138,7 +138,7 @@ static inline void _gen_helper_data(void)
     /* TODO: Fixed values for debug purposes. Will change later. */
     static uint8_t bytes[PUF_SRAM_CODEOFFSET_LEN] = {1, 1, 1, 1, 1, 1};
     //random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
-    _print_buf(bytes, PUF_SRAM_CODEOFFSET_LEN, "Enrollment - Codeoffset:");
+    _print_buf(bytes, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset:");
 
     /* TODO: Add support for multiple iterations.
           - Sum up in binary representation (if needed)
@@ -159,16 +159,18 @@ static inline void _gen_helper_data(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    puts("Helper data generated");
+    puts("\t- Helper data generated");
 
 #ifdef USE_EEPROM
     eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-    puts("Helper data written into EEPROM");
+    puts("\t- Helper data written into EEPROM");
+    _set_flag();
 #else
 
 #ifdef USE_N25Q128
     n25q128_page_program(&n25q128, HELPER_N25Q128_ADDR, helper, PUF_SRAM_HELPER_LEN);
-    puts("Helper data written into N25Q128");
+    puts("\t- Helper data written into N25Q128");
+    _set_flag();
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
@@ -177,7 +179,7 @@ static inline void _gen_helper_data(void)
 static int cmd_helper(int argc, char **argv)
 {
     if (argc > 2 || argc < 1) {
-        puts("usage: helper [erase]");
+        puts("usage: helper [clear]");
         return 1;
     }
 
@@ -185,6 +187,8 @@ static int cmd_helper(int argc, char **argv)
 #ifdef USE_EEPROM
         eeprom_clear(PUF_SRAM_HELPER_EEPROM_START, PUF_SRAM_HELPER_LEN);
         printf("EEPROM: %d bytes erased from position %d\n", PUF_SRAM_HELPER_LEN, PUF_SRAM_HELPER_EEPROM_START);
+        /* To signalize that the helper data is not generated. */
+        _clear_flag();
 #else
 
 #ifdef USE_N25Q128
@@ -192,8 +196,10 @@ static int cmd_helper(int argc, char **argv)
         n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
         /* addr: 0x0 - 0xFFFF is the first sector (0)*/
         printf("N25Q128: Sector on address <0x%06x> cleared!\n", HELPER_N25Q128_ADDR);
-        // The N25Q128 needs a few moment to erase a single sector.
+        /* Sector erase commands need a few moment, before next erase can be processed. */
         xtimer_sleep(1);
+        /* To signalize that the helper data is not generated. */
+        _clear_flag();
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
@@ -216,10 +222,10 @@ static int cmd_helper(int argc, char **argv)
     return 0;
 }
 
-static int cmd_enroll(int argc, char **argv)
+static int cmd_standby(int argc, char **argv)
 {
     if (argc > 2 || argc < 2) {
-        puts("usage: enroll <standby-duration-seconds>");
+        puts("usage: standby <duration_in_seconds>");
         return 1;
     }
 
@@ -251,9 +257,6 @@ static int cmd_enroll(int argc, char **argv)
     printf("Set RTC alarm (~%d seconds) to wake up from standby\n", duration);
     rtc_set_alarm(&time, 0, 0);
 
-    puts("Set a flag to trigger helper data generation next power cycle");
-    _set_flag();
-
     puts("Going into standby now\n.\n.\n.");
     pm_set(STM32_PM_STANDBY);
 
@@ -283,7 +286,7 @@ static int cmd_id(int argc, char **argv)
 }
 
 static const shell_command_t shell_commands[] = {
-    { "enroll", "enroll <standby-duration-seconds>; Triggers helper generation (need power cycle before!)", cmd_enroll },
+    { "standby", "standby <duration_in_seconds>; Triggers enrollment, if helper data is not available", cmd_standby },
     { "helper", "helper [clear]; Shows or clear the helper data", cmd_helper },
     { "id", "id [gen|clear]; Show, generate or delete the ID (need to enroll before!)", cmd_id },
     { NULL, NULL, NULL }
@@ -317,22 +320,26 @@ int main(void)
     /* 'power_cycle_detected' declared in puf_sram.h */
     if (power_cycle_detected) {
         puts("Power cycle detected");
-        /* Check, if the gen helper flag was set in previously power cycle. */
-        if (_is_flag_set()) {
-            puts("Flag detected");
+        /* Check, if helper data wasn't already generated. */
+        if (!_is_flag_set()) {
+            puts("\nEnrollment {\n");
+            puts("\t- Flag not set.\n\t- Helper data is not generated.");
             _gen_helper_data();
-            _clear_flag();
+            puts("\n} Enrollment\n");
+        } else {
+            puts("Helper data available");
         }
-        xtimer_sleep(1);
+        puts("\nReconstruction {\n");
+        //xtimer_sleep(1); // sleep is just optional because of _print_buf().
         puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
-        puts("Secret generated\n");
-        _print_buf(puf_sram_id, sizeof(puf_sram_id), "Reconstruction - ID:");
-        _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "Reconstruction - Codeoffset:");
+        puts("\t- Secret generated");
+        _print_buf(puf_sram_id, sizeof(puf_sram_id), "\t- ID (secret):");
+        _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset:");
+        puts("} Reconstruction\n");
     } else {
         /* During softreset. Instead of using shell, you can just re-plug the power source. */
         puts("Softreset detected");
         puts("\t-> waiting for next power cycle (replug power source)");
-        _set_flag();
     }
 
     /* Running the shell. */
