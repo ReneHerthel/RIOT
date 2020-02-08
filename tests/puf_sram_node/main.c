@@ -180,7 +180,9 @@ static int cmd_helper(int argc, char **argv)
 
     if (strcmp(argv[1], "show") == 0) {
 #ifdef USE_EEPROM
-        // TODO: Support for EEPROM.
+        static uint8_t mem_io[PUF_SRAM_HELPER_LEN] = {0};
+        eeprom_read(0, mem_io, PUF_SRAM_HELPER_LEN);
+        _print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
 #else
 
 #ifdef USE_N25Q128
@@ -192,7 +194,7 @@ static int cmd_helper(int argc, char **argv)
 #endif /* USE_EEPROM */
     } else if (strcmp(argv[1], "clear") == 0) {
 #ifdef USE_EEPROM
-        // TODO: Support for EEPROM.
+        eeprom_clear(0, PUF_SRAM_HELPER_LEN);
 #else
 
 #ifdef USE_N25Q128
@@ -215,6 +217,7 @@ static int cmd_enroll(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+
     struct tm time = {
         .tm_year = 2020 - 1900,   /* years are counted from 1900 */
         .tm_mon  = 1,             /* 0 = January, 11 = December */
@@ -229,7 +232,7 @@ static int cmd_enroll(int argc, char **argv)
 
     puts("Set alarm for the RTC to wake up from standby");
     rtc_set_time(&time);
-    inc_secs(&time, 4); // add few seconds to 'time'
+    inc_secs(&time, 8); // add few seconds to 'time'
     rtc_set_alarm(&time, 0, 0); // no callback or arg
 
     puts("Going into standby now");
