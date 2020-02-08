@@ -36,6 +36,7 @@
 PUF_SRAM_ATTRIBUTES uint8_t codeoffset_debug[6];
 PUF_SRAM_ATTRIBUTES uint8_t ram_debug[PUF_SRAM_HELPER_LEN];
 PUF_SRAM_ATTRIBUTES uint8_t helper_debug[PUF_SRAM_HELPER_LEN];
+PUF_SRAM_ATTRIBUTES bool power_cycle_detected;
 
 /* Allocation of the PUF seed variable */
 PUF_SRAM_ATTRIBUTES uint32_t puf_sram_seed;
@@ -200,8 +201,10 @@ void puf_sram_generate_seed(const uint8_t *ram, size_t len)
 
 bool puf_sram_softreset(void)
 {
+    power_cycle_detected = false;
     if (puf_sram_marker != PUF_SRAM_MARKER) {
         puf_sram_state = 2;
+        power_cycle_detected = true;
         return 0;
     }
     puf_sram_state = 1;

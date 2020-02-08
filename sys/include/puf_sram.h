@@ -172,6 +172,7 @@ extern "C" {
 #endif
 
 #include <string.h>
+#include <stdbool.h>
 
 #include "thread.h"
 #include "hashes.h"
@@ -240,6 +241,7 @@ extern "C" {
 extern uint8_t codeoffset_debug[6];
 extern uint8_t ram_debug[PUF_SRAM_HELPER_LEN];
 extern uint8_t helper_debug[PUF_SRAM_HELPER_LEN];
+extern bool power_cycle_detected;
 
 
 
