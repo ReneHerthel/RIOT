@@ -37,11 +37,11 @@
 #include "puf_sram.h"
 #include "shell.h"
 
-#define FLAG_SIZE                   (1) // byte
-
 #ifdef MODULE_PM_LAYERED
 #include "pm_layered.h"
 #endif
+
+#define FLAG_SIZE                   (1) // 1 byte size
 
 #ifdef USE_EEPROM
 #include "periph/eeprom.h"
@@ -55,78 +55,70 @@ static n25q128_dev_t n25q128;
 #define FLAG_N25Q128_ADDR           (0x20000)
 #endif
 
+#define ENABLE_DEBUG                (1) // 1 := ON, 0 := OFF
+#include "debug.h"
+
+#define DELETE_SECRET_AFTERWARDS    (0) // 1 := ON, 0 := OFF
+
+#define MAIN_DELAY                  (2) // seconds; xtimer
+
 /* @brief   Prints buffer like helper data or ID to the console. */
 static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 {
-    printf("\n%s\n", title);
-
-    /* Formated for working with python scripts. */
-    printf("\t[");
-
+    DEBUG("\n%s\n", title);
+    DEBUG("\t[");
     for (unsigned i = 0; i < len; i++) {
         if (i == (len - 1)) {
-            printf("0x%02x", buf[i]);
+            DEBUG("%d", buf[i]); //DEBUG("0x%02x", buf[i]);
         } else {
-            printf("0x%02x, ", buf[i]);
+            DEBUG("%d, ", buf[i]); //DEBUG("0x%02x, ", buf[i]);
         }
     }
-
-    printf("]\n\n");
+    DEBUG("]\n\n");
 }
 
 /* @brief   Sets the helper-gen flag. */
 static inline void _set_flag(void)
 {
     static uint8_t flag[FLAG_SIZE] = {1};
-
 #ifdef USE_EEPROM
     eeprom_write(FLAG_EEPROM_POS, flag, FLAG_SIZE);
 #else
-    (void)flag;
-
 #ifdef USE_N25Q128
     n25q128_page_program(&n25q128, FLAG_N25Q128_ADDR, flag, FLAG_SIZE);
+    //DEBUG("Flag set\n");
+#else
+    (void)flag;
 #endif /* USE_N25Q128 */
-
 #endif /* USE_EEPROM */
-
-    puts("\t- Flag set");
 }
 
 /* @brief   Clears the helper-gen flag. */
 static inline void _clear_flag(void)
 {
     static uint8_t flag[FLAG_SIZE] = {0};
-
 #ifdef USE_EEPROM
     eeprom_write(FLAG_EEPROM_POS, flag, FLAG_SIZE);
 #else
-    (void)flag;
-
 #ifdef USE_N25Q128
     n25q128_sector_erase(&n25q128, FLAG_N25Q128_ADDR);
-#endif
-
-#endif
-
-    puts("Flag cleared");
+    (void)flag;
+#endif /* USE_N25Q128 */
+#endif /* USE_EEPROM */
 }
 
 static inline int _is_flag_set(void)
 {
     static uint8_t flag[FLAG_SIZE] = {0};
-
 #ifdef USE_EEPROM
     eeprom_read(FLAG_EEPROM_POS, flag, FLAG_SIZE);
 #else
-    (void)flag;
-
 #ifdef USE_N25Q128
     n25q128_read_data_bytes(&n25q128, FLAG_N25Q128_ADDR, flag, FLAG_SIZE);
+#else
+    (void)flag;
 #endif /* USE_N25Q128 */
-
 #endif /* USE_EEPROM */
-
     return (flag[0] == 1);
 }
 
@@ -135,19 +127,10 @@ static inline void _gen_helper_data(void)
     static uint8_t helper[PUF_SRAM_HELPER_LEN] = {0};
     static uint8_t golay[PUF_SRAM_GOLAY_LEN] = {0};
     static uint8_t repetition[PUF_SRAM_HELPER_LEN] = {0};
-    /* TODO: Fixed values for debug purposes. Will change later. */
-    static uint8_t bytes[PUF_SRAM_CODEOFFSET_LEN] = {1, 1, 1, 1, 1, 1};
-    //random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
-    _print_buf(bytes, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset:");
+    static uint8_t bytes[PUF_SRAM_CODEOFFSET_LEN] = {0};
 
-    /* TODO: Add support for multiple iterations.
-          - Sum up in binary representation (if needed)
-          - Binarize maximum to likelihood
-          - Build the enr_bytes together again
-          NOTE: The very first init of puf_sram_seed is the first iteration.
-          Just hold it simple for the moment.
-          dist/tools/puf-sram/puf_sram.py:56 */
-    //uint32_t mle_response = puf_sram_seed;
+    random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
+    _print_buf(bytes, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset(main.c):");
 
     uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
 
@@ -159,17 +142,19 @@ static inline void _gen_helper_data(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    puts("\t- Helper data generated");
+    DEBUG("\t- Helper data generated\n");
 
 #ifdef USE_EEPROM
     eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-    puts("\t- Helper data written into EEPROM");
+    //DEBUG("\t- Helper data written into EEPROM\n");
     _set_flag();
 #else
 
 #ifdef USE_N25Q128
     n25q128_page_program(&n25q128, HELPER_N25Q128_ADDR, helper, PUF_SRAM_HELPER_LEN);
-    puts("\t- Helper data written into N25Q128");
+    //DEBUG("\t- Helper data written into N25Q128\n");
+    // The n25q128 needs a few moment before writing the next one.
+    xtimer_sleep(1);
     _set_flag();
 #endif /* USE_N25Q128 */
 
@@ -178,15 +163,17 @@ static inline void _gen_helper_data(void)
 
 static int cmd_helper(int argc, char **argv)
 {
+    static uint8_t mem_io[PUF_SRAM_HELPER_LEN] = {0};
+
     if (argc > 2 || argc < 1) {
-        puts("usage: helper [clear]");
+        DEBUG("usage: helper [clear]\n");
         return 1;
     }
 
     if (strcmp(argv[1], "clear") == 0) {
 #ifdef USE_EEPROM
         eeprom_clear(PUF_SRAM_HELPER_EEPROM_START, PUF_SRAM_HELPER_LEN);
-        printf("EEPROM: %d bytes erased from position %d\n", PUF_SRAM_HELPER_LEN, PUF_SRAM_HELPER_EEPROM_START);
+        DEBUG("EEPROM: %d bytes erased from position %d\n", PUF_SRAM_HELPER_LEN, PUF_SRAM_HELPER_EEPROM_START);
         /* To signalize that the helper data is not generated. */
         _clear_flag();
 #else
@@ -195,26 +182,27 @@ static int cmd_helper(int argc, char **argv)
         /* Erase the *whole* sector of the given address. */
         n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
         /* addr: 0x0 - 0xFFFF is the first sector (0)*/
-        printf("N25Q128: Sector on address <0x%06x> cleared!\n", HELPER_N25Q128_ADDR);
+        //DEBUG("N25Q128: Sector on address <0x%06x> cleared!\n", HELPER_N25Q128_ADDR);
         /* Sector erase commands need a few moment, before next erase can be processed. */
-        xtimer_sleep(1);
-        /* To signalize that the helper data is not generated. */
+        xtimer_sleep(2);
+        /* To signalize that the helper data is not generated (because it was erased). */
         _clear_flag();
+        DEBUG("Helper data erased\n");
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
     }
 
 #ifdef USE_EEPROM
-        static uint8_t mem_io[PUF_SRAM_HELPER_LEN] = {0};
         eeprom_read(PUF_SRAM_HELPER_EEPROM_START, mem_io, PUF_SRAM_HELPER_LEN);
-        _print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
+        //_print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
 #else
 
 #ifdef USE_N25Q128
-        static uint8_t mem_io[PUF_SRAM_HELPER_LEN] = {0};
         n25q128_read_data_bytes(&n25q128, HELPER_N25Q128_ADDR, mem_io, PUF_SRAM_HELPER_LEN);
-        _print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
+        //_print_buf(mem_io, PUF_SRAM_HELPER_LEN, "Helper data:");
+#else
+    (void)mem_io;
 #endif /* USE_N25Q128 */
 
 #endif /* USE_EEPROM */
@@ -225,7 +213,7 @@ static int cmd_helper(int argc, char **argv)
 static int cmd_standby(int argc, char **argv)
 {
     if (argc > 2 || argc < 2) {
-        puts("usage: standby <duration_in_seconds>");
+        DEBUG("usage: standby <duration_in_seconds>\n");
         return 1;
     }
 
@@ -244,6 +232,7 @@ static int cmd_standby(int argc, char **argv)
 
     /* No need to sleep longer than 60 seconds in this test. */
     if (duration > 60) {
+        printf("Set duration to 60 seconds\n");
         duration = 60;
     }
 
@@ -254,10 +243,10 @@ static int cmd_standby(int argc, char **argv)
         time.tm_min += 1;
     }
 
-    printf("Set RTC alarm (~%d seconds) to wake up from standby\n", duration);
+    DEBUG("Set RTC alarm to fire in ~%d seconds, to wake up from standby.\n", duration);
     rtc_set_alarm(&time, 0, 0);
 
-    puts("Going into standby now\n.\n.\n.");
+    DEBUG("Going into standby now.\n");
     pm_set(STM32_PM_STANDBY);
 
     return 0;
@@ -266,21 +255,20 @@ static int cmd_standby(int argc, char **argv)
 static int cmd_id(int argc, char **argv)
 {
     if (argc > 2 || argc < 1) {
-        puts("usage: id [gen]");
+        DEBUG("usage: id [gen]\n");
         return 1;
     }
 
     if (strcmp(argv[1], "gen") == 0) {
-        // TODO: (uint8_t *)&puf_sram_seed needs to be optimized.
         puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
-        puts("Secret generated.\n");
+        DEBUG("Secret generated\n");
     } else if (strcmp(argv[1], "clear") == 0) {
         puf_sram_delete_secret();
-        puts("Secret cleared.\n");
+        DEBUG("Secret cleared\n");
     }
 
     _print_buf(puf_sram_id, sizeof(puf_sram_id), "cmd_id - ID:");
-    _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "cmd_id - Codeoffset:");
+    _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "cmd_id - Codeoffset(puf_sram.c):");
 
     return 0;
 }
@@ -295,16 +283,9 @@ static const shell_command_t shell_commands[] = {
 int main(void)
 {
     /* Sleep a few seconds to wait for settig up the UART. */
-    xtimer_sleep(1);
-
-    puts("\n\nApplication: puf sram simplification");
-
-#ifdef USE_EEPROM
-    puts("Use EEPROM to write helper data into");
-#else
+    xtimer_sleep(MAIN_DELAY);
 
 #ifdef USE_N25Q128
-    puts("Use N25Q128 to write helper data into");
     /* XXX: Specific configuration for iotlab-m3 nodes. */
     n25q128.conf.bus = EXTFLASH_SPI;
     n25q128.conf.mode = SPI_MODE_0;
@@ -312,34 +293,38 @@ int main(void)
     n25q128.conf.cs = EXTFLASH_CS;
     n25q128.conf.write = EXTFLASH_WRITE;
     n25q128.conf.hold = EXTFLASH_HOLD;
-    printf("Initialize N25Q128 driver: [ %s ]\n", ((n25q128_init(&n25q128) == 0) ? "OK" : "FAIL"));
+    if ((n25q128_init(&n25q128) != 0)) {
+        DEBUG("Initialize flash memory driver: N25Q128 [ FAILED! ]\n");
+    }
 #endif /* USE_N25Q128 */
-
-#endif /* USE_EEPROM */
 
     /* 'power_cycle_detected' declared in puf_sram.h */
     if (power_cycle_detected) {
-        puts("Power cycle detected");
+        DEBUG("Power cycle detected:\n");
         /* Check, if helper data wasn't already generated. */
         if (!_is_flag_set()) {
-            puts("\nEnrollment {\n");
-            puts("\t- Flag not set.\n\t- Helper data is not generated.");
             _gen_helper_data();
-            puts("\n} Enrollment\n");
-        } else {
-            puts("Helper data available");
         }
-        puts("\nReconstruction {\n");
-        //xtimer_sleep(1); // sleep is just optional because of _print_buf().
+
         puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
-        puts("\t- Secret generated");
-        _print_buf(puf_sram_id, sizeof(puf_sram_id), "\t- ID (secret):");
-        _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset:");
-        puts("} Reconstruction\n");
+
+        _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset(puf_sram.c):");
+
+        printf("idstart{ ");
+        for (unsigned i = 0; i < sizeof(puf_sram_id); i++) {
+            printf("%d ", puf_sram_id[i]);
+        }
+        printf("}idend\n");
+
+        if (DELETE_SECRET_AFTERWARDS) {
+            puf_sram_delete_secret();
+            DEBUG("Secret deleted afterwards\n");
+        }
+
     } else {
         /* During softreset. Instead of using shell, you can just re-plug the power source. */
-        puts("Softreset detected");
-        puts("\t-> waiting for next power cycle (replug power source)");
+        printf("Softreset detected:\n");
+        printf("\t-> waiting for next power cycle (replug power source)\n");
     }
 
     /* Running the shell. */
