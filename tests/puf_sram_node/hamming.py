@@ -39,14 +39,59 @@ def main_func():
         conc.append(''.join(bin_str[i]))
 
     # take one id. compare to all other ids. print results of hamming distance in comparison with other keys
+    mean = []
+    median = []
+    identical = []
     for i, x in enumerate(conc):
-        print("\n\n Index\t: Key\t: hamming-distance[h]\n-----------------\n  ["+str(i)+"]\t: "+str(x)+"\n-----------------")
+        #print("\n\n Index\t: Key\t: hamming-distance[h]\n-----------------\n  ["+str(i)+"]\t: "+str(x)+"\n-----------------")
+        print("\n\n Index\t: Key\t: hamming-distance[h]\n-----------------\n  ["+str(i)+"]\t: "+str(x))
+        h_sum = 0
+        h_num = 0
+        h_list = []
         for j, y in enumerate(conc):
             if j != i:
                 h = hamming(conc[i], conc[j])
-                print("  [" + str(j) + "]\t: " + str(y) + " : h = ", h)
+                h_list.append(h)
+                h_sum += h
+                h_num += 1
+                #print("  [" + str(j) + "]\t: " + str(y) + " : h = ", h)
                 if (h == 0):
-                    print("\t-> Identical key found!")
+                    print("\t-> Identical key found! ["+str(i)+"] & ["+str(j)+"]\n")
+                    identical.append(tuple((i, j)))
+        #print("\t-> h_sum = ", h_sum)
+        h_mean = h_sum/h_num
+        print("\t-> h_mean = ", h_mean)
+        h_len = len(h_list)
+        #print("len : ",h_len)
+        h_median = 0
+        if (((h_len / 2) % 2) == 0 ): # 97 / 2 = 48.5 % 2 != 0
+            h_median = h_list[int(h_len/2)]
+        else:
+            #print("h_list: ",h_list[int(h_len/2)])
+            #print("h_list2: ",h_list[int((h_len/2))+1])
+            h_median = (h_list[int(h_len/2)]+h_list[int((h_len/2))+1])/2
+        print("\t-> h_median = ", h_median)
+        mean.append(h_mean)
+        median.append(h_median)
+        # for-end
+
+    mean_sum = 0
+    mean_count = 0
+    for i, x in enumerate(mean):
+        mean_count += 1
+        mean_sum += x
+
+    print("\n\nEndresult:")
+    print(" - mean total : ", mean_sum/mean_count)
+    print(" - identical keys : ", identical)
+    """
+    k = 0
+    if (((len(median) / 2) % 2) == 0):
+        k = median[int(len(median)/2)]
+    else:
+        k = (median[int(len(median)/2)]+median[int((len(median)/2))+1])/2
+    print("median of all : ", k)
+    """
 
 
 if __name__ == "__main__":
