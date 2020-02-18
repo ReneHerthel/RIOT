@@ -9,90 +9,60 @@
 
 import numpy as np
 
-def hamming(s1, s2):
-    assert len(s1) == len(s2)
-    return sum(c1 != c2 for c1, c2 in zip(s1, s2))
+def hamming(str_x, str_y):
+    # make sure its the same length
+    assert len(str_x) == len(str_y)
+    # count (sum) every different bit
+    return sum(bit_x != bit_y for bit_x, bit_y in zip(str_x, str_y))
 
 def main_func():
-    id_counter = 0
-
-    # extract the ids/keys from the logfile
-    ids_int = []
+    codes_int = []
     with open('log.txt') as f:
+        # Every single line in log.txt
         for line in f:
+            # Check if the line contains start- and end-marker
             if (("idstart{" in line) and ("}idend" in line)):
+                    # Extract string between braces, only containing the values
                     id = line[line.find("{")+1:line.find("}")].split()
                     if id:
-                        id_counter += 1
+                        # Convert each entry into an integer
                         id = [int(i) for i in id]
-                        print("Found Key : ", id)
-                        ids_int.append(id)
+                        print("Key found : ", id)
+                        codes_int.append(id)
 
-    print("Key's total == ", str(id_counter))
+    print("Key's total : ", str(len(codes_int)))
 
     # convert into binary-string
-    bin_str = [[format(x, '0>8b') for x in id] for id in ids_int]
+    codes_bin = [[format(byte, '0>8b') for byte in code] for code in codes_int]
 
     # concatenate the id's single values into one large 'bit'-string
-    conc = list()
-    for i, x in enumerate(bin_str):
-        conc.append(''.join(bin_str[i]))
+    codes_str = list()
+    for i in range(len(codes_bin)):
+        codes_str.append(''.join(codes_bin[int(i)]))
 
-    # take one id. compare to all other ids. print results of hamming distance in comparison with other keys
     mean = []
-    median = []
     identical = []
-    for i, x in enumerate(conc):
+    for i, x in enumerate(codes_str):
         #print("\n\n Index\t: Key\t: hamming-distance[h]\n-----------------\n  ["+str(i)+"]\t: "+str(x)+"\n-----------------")
         print("\n\n Index\t: Key\t: hamming-distance[h]\n-----------------\n  ["+str(i)+"]\t: "+str(x))
-        h_sum = 0
-        h_num = 0
         h_list = []
-        for j, y in enumerate(conc):
+        for j, y in enumerate(codes_str):
             if j != i:
-                h = hamming(conc[i], conc[j])
+                h = hamming(codes_str[i], codes_str[j])
                 h_list.append(h)
-                h_sum += h
-                h_num += 1
                 #print("  [" + str(j) + "]\t: " + str(y) + " : h = ", h)
                 if (h == 0):
-                    print("\t-> Identical key found! ["+str(i)+"] & ["+str(j)+"]\n")
-                    identical.append(tuple((i, j)))
-        #print("\t-> h_sum = ", h_sum)
-        h_mean = h_sum/h_num
-        print("\t-> h_mean = ", h_mean)
-        h_len = len(h_list)
-        #print("len : ",h_len)
-        h_median = 0
-        if (((h_len / 2) % 2) == 0 ): # 97 / 2 = 48.5 % 2 != 0
-            h_median = h_list[int(h_len/2)]
-        else:
-            #print("h_list: ",h_list[int(h_len/2)])
-            #print("h_list2: ",h_list[int((h_len/2))+1])
-            h_median = (h_list[int(h_len/2)]+h_list[int((h_len/2))+1])/2
-        print("\t-> h_median = ", h_median)
-        mean.append(h_mean)
-        median.append(h_median)
-        # for-end
+                    #print("\t-> Identical key found! ["+str(i)+"] & ["+str(j)+"]\n")
+                    identical.append("["+str(i)+"]&["+str(j)+"]")
 
-    mean_sum = 0
-    mean_count = 0
-    for i, x in enumerate(mean):
-        mean_count += 1
-        mean_sum += x
+        h_mean = sum(h_list) / len(h_list)
+        print("\t-> h_mean = ", h_mean)
+        mean.append(h_mean)
+    # for-end
 
     print("\n\nEndresult:")
-    print(" - mean total : ", mean_sum/mean_count)
+    print(" - mean overall : ", sum(mean) / len(mean))
     print(" - identical keys : ", identical)
-    """
-    k = 0
-    if (((len(median) / 2) % 2) == 0):
-        k = median[int(len(median)/2)]
-    else:
-        k = (median[int(len(median)/2)]+median[int((len(median)/2))+1])/2
-    print("median of all : ", k)
-    """
-
 
 if __name__ == "__main__":
     main_func()
