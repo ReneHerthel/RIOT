@@ -25,13 +25,13 @@ def main_func():
         for line in f:
             # Check if the line contains start- and end-marker
             if (("idstart{" in line) and ("}idend" in line)):
-                    # Extract string between braces, only containing the values
-                    id = line[line.find("{")+1:line.find("}")].split()
-                    if id:
-                        # Convert each entry into an integer
-                        id = [int(i) for i in id]
-                        print("Key found : ", id)
-                        codes_int.append(id)
+                # Extract string between braces, only containing the values
+                id = line[line.find("{")+1:line.find("}")].split()
+                if id:
+                    # Convert each entry into an integer
+                    id = [int(i) for i in id]
+                    # print("Key found : ", id)
+                    codes_int.append(id)
 
     print("Key's total : ", str(len(codes_int)))
 
@@ -45,11 +45,12 @@ def main_func():
 
     mean = []
     median = []
-    std = [] # standard deviation
-    identical = [] # whenever identical keys where found
+    std = []  # standard deviation
+    identical = []  # whenever identical keys where found
 
     for i, x in enumerate(codes_str):
-        print("\n\n- - - - - - - - - - - - - - - - - - - -\n  key[" + str(i) + "]:\n")
+        # print("\n\n- - - - - - - - - - - - - - - - - - - -\n  key[" + str(i)
+        # + "]:\n")
         h_list = []
 
         for j, y in enumerate(codes_str):
@@ -61,36 +62,36 @@ def main_func():
 
         h_mean = np.mean(h_list)
         h_median = np.median(h_list)
-        h_min = np.min(h_list)
-        h_max = np.max(h_list)
+        # h_min = np.min(h_list)
+        # h_max = np.max(h_list)
         h_std = np.std(h_list)
 
         mean.append(h_mean)
         median.append(h_median)
         std.append(h_std)
 
-        print("  h_min    = ", h_min)
-        print("  h_max    = ", h_max)
-        print("  h_mean   = ", h_mean)
-        print("  h_median = ", h_median)
-        print("  h_std    = ", h_std)
+        # print("  h_min    = ", h_min)
+        # print("  h_max    = ", h_max)
+        # print("  h_mean   = ", h_mean)
+        # print("  h_median = ", h_median)
+        # print("  h_std    = ", h_std)
     # for-end
 
-    print("\n\n  Calculated over all *mean* data:")
+    print("\n\n  mean:")
     print("  min    = ", np.min(mean))
     print("  max    = ", np.max(mean))
     print("  mean   = ", np.mean(mean))
     print("  median = ", np.median(mean))
     print("  std    = ", np.std(mean))
 
-    print("\n\n  Calculated over all *median* data:")
+    print("\n\n  median:")
     print("  min    = ", np.min(median))
     print("  max    = ", np.max(median))
     print("  mean   = ", np.mean(median))
     print("  median = ", np.median(median))
     print("  std    = ", np.std(median))
 
-    print("\n\n  Calculated over all *standard deviation* data:")
+    print("\n\n  standard deviation:")
     print("  min    = ", np.min(std))
     print("  max    = ", np.max(std))
     print("  mean   = ", np.mean(std))
@@ -98,7 +99,8 @@ def main_func():
     print("  std    = ", np.std(std))
 
     if identical:
-        print("  identical keys : ", identical)
+        print("num of identical keys = ", len(identical))
+        # print("  identical keys : ", identical)
 
 
 if __name__ == "__main__":

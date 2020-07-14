@@ -20,7 +20,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 
 #define ENABLE_DEBUG (0)
 #include "debug.h"
@@ -141,6 +140,21 @@ static inline uint8_t _read_status_reg(n25q128_dev_t *dev)
     static uint8_t buf[1] = {0};
 
     dev->cmd.code = N25Q128_OPCODE_RDSR;
+    dev->cmd.addr = 0;
+    dev->data.buf = buf;
+    dev->data.len = 1;
+    dev->opt.mask = N25Q128_OPT_RECV_EN;
+
+    _execute(dev);
+
+    return buf[0];
+}
+
+static inline uint8_t _read_flag_reg(n25q128_dev_t *dev)
+{
+    static uint8_t buf[1] = {0};
+
+    dev->cmd.code = N25Q128_OPCODE_RFSR;
     dev->cmd.addr = 0;
     dev->data.buf = buf;
     dev->data.len = 1;
@@ -290,4 +304,9 @@ void n25q128_program_erase_resume(n25q128_dev_t *dev)
 bool n25q128_write_in_progress(n25q128_dev_t *dev)
 {
     return (_read_status_reg(dev) & N25Q128_STAT_REG_WIP);
+}
+
+bool n25q128_program_erase_status(n25q128_dev_t *dev)
+{
+    return (_read_flag_reg(dev) & N25Q128_FLAG_REG_PE_CONTRL);
 }

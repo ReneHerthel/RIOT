@@ -37,45 +37,26 @@
 #include "puf_sram.h"
 #include "shell.h"
 
+#define ENABLE_DEBUG                (0)
+#include "debug.h"
+
 #ifdef MODULE_PM_LAYERED
 #include "pm_layered.h"
 #endif
 
-#define FLAG_SIZE                   (1) // 1 byte size..
-
-#ifdef USE_EEPROM
-#include "periph/eeprom.h"
-#define EEPROM_FLAG_POS             (PUF_SRAM_HELPER_LEN + FLAG_SIZE)
-#endif
-
-#ifdef USE_N25Q128
 #include "n25q128.h"
 static n25q128_dev_t n25q128;
-#define HELPER_N25Q128_ADDR         (0x0) // Sektor 0
+#define HELPER_N25Q128_ADDR         (0x0)     // Sektor 0
 #define HELPER_FLAG_N25Q128_ADDR    (0x20000) // Sektor 2
-#endif
 
 #define ID_LOOPS_FLAG_ADDR          (0x30000) // Sektor 3
-#define ID_LOOPS_COUNTER_ADDR       (0x40000) // Sektor 4
+#define ID_LOOPS_ITER_ADDR          (0x40000) // Sektor 4
 #define ID_LOOPS_N_ADDR             (0x50000) // Sektor 5
 
-#define ENABLE_DEBUG                (0)
-#include "debug.h"
+/* clamps a specifc value between minimum and maximum */
+#define CLAMP(x, min, max)    ((x > max) ? max : ((x < min) ? min : x))
 
-#define MAIN_DELAY                  (2) // seconds; xtimer
-
-/** HELPER FUNCTIONS **/
-
-static inline void _print_id(void)
-{
-    printf("idstart{ ");
-    for (unsigned i = 0; i < sizeof(puf_sram_id); i++) {
-        printf("%d ", puf_sram_id[i]);
-    }
-    printf("}idend\n");
-}
-
-/* @brief   Prints buffer like helper data or ID to the console. */
+/* prints a buffer for debug */
 static inline void _print_buf(uint8_t *buf, size_t len, char *title)
 {
     DEBUG("\n%s\n", title);
@@ -90,51 +71,66 @@ static inline void _print_buf(uint8_t *buf, size_t len, char *title)
     DEBUG("]\n\n");
 }
 
+/* wait for the write in progress flag to be cleared */
+static inline void _wait_for_wip(void)
+{
+    while(n25q128_write_in_progress(&n25q128));
+}
+
+static inline void _wait_for_controller(void)
+{
+    while(n25q128_program_erase_status(&n25q128) == 0);
+}
+
+/* print the generated id */
+static inline void _print_id(void)
+{
+    uint8_t lp_iter[4] = {0};
+
+    _wait_for_controller();
+    n25q128_read_data_bytes(&n25q128, ID_LOOPS_ITER_ADDR, lp_iter, 4);
+
+    uint32_t i = 0;
+    i = lp_iter[0] | (lp_iter[1] << 8) | (lp_iter[2] << 16) | (lp_iter[3] << 24);
+
+    printf("No.: %ld \tidstart{ ", i);
+    for (unsigned i = 0; i < sizeof(puf_sram_id); i++) {
+        printf("%d ", puf_sram_id[i]);
+    }
+    printf("}idend\n");
+}
+
+/* erase the whole sector corresponding to the address */
+static inline void _sector_erase(uint32_t addr)
+{
+    _wait_for_controller();
+    n25q128_sector_erase(&n25q128, addr);
+    _wait_for_wip();
+}
+
+static inline void _page_program(uint32_t addr, uint8_t * buf, size_t len)
+{
+    _wait_for_controller();
+    n25q128_page_program(&n25q128, addr, buf, len);
+    _wait_for_wip();
+}
+
 static inline void _set_flag(uint32_t flag_addr)
 {
-    static uint8_t flag[FLAG_SIZE] = {1};
-#ifdef USE_EEPROM
-    eeprom_write(EEPROM_FLAG_POS, flag, FLAG_SIZE);
-#else
-#ifdef USE_N25Q128
-    n25q128_page_program(&n25q128, flag_addr, flag, FLAG_SIZE);
-    //DEBUG("Flag set\n");
-#else
-    (void)flag;
-#endif /* USE_N25Q128 */
-#endif /* USE_EEPROM */
-xtimer_usleep(1000U * US_PER_MS);
+    static uint8_t flag[1] = {1};
+    _page_program(flag_addr, flag, 1);
 }
 
 static inline void _clear_flag(uint32_t flag_addr)
 {
-
-    static uint8_t flag[FLAG_SIZE] = {0};
-
-#ifdef USE_EEPROM
-    eeprom_write(EEPROM_FLAG_POS, flag, FLAG_SIZE);
-#else
-#ifdef USE_N25Q128
-    n25q128_sector_erase(&n25q128, flag_addr);
-    xtimer_usleep(1000U * US_PER_MS);
-    (void)flag;
-#endif /* USE_N25Q128 */
-#endif /* USE_EEPROM */
-
+    _sector_erase(flag_addr);
 }
 
 static inline int _is_flag_set(uint32_t flag_addr)
 {
-    static uint8_t flag[FLAG_SIZE] = {0};
-#ifdef USE_EEPROM
-    eeprom_read(EEPROM_FLAG_POS, flag, FLAG_SIZE);
-#else
-#ifdef USE_N25Q128
-    n25q128_read_data_bytes(&n25q128, flag_addr, flag, FLAG_SIZE);
-#else
-    (void)flag;
-#endif /* USE_N25Q128 */
-#endif /* USE_EEPROM */
+    static uint8_t flag[1] = {0};
+    _wait_for_controller();
+    n25q128_read_data_bytes(&n25q128, flag_addr, flag, 1);
     return (flag[0] == 1);
 }
 
@@ -146,6 +142,7 @@ static inline void _gen_helper_data(void)
     static uint8_t bytes[PUF_SRAM_CODEOFFSET_LEN] = {0};
 
     random_bytes(bytes, PUF_SRAM_CODEOFFSET_LEN);
+
     //_print_buf(bytes, PUF_SRAM_CODEOFFSET_LEN, "\t- Codeoffset(main.c):");
 
     uint8_t *ref_mes = (uint8_t *)&puf_sram_seed;
@@ -158,29 +155,15 @@ static inline void _gen_helper_data(void)
         helper[i] = repetition[i] ^ ref_mes[i];
     }
 
-    DEBUG("\(!)Helper data generated and stored(!)\n");
+    _page_program(HELPER_N25Q128_ADDR, helper, PUF_SRAM_HELPER_LEN);
 
-#ifdef USE_EEPROM
-    eeprom_write(PUF_SRAM_HELPER_EEPROM_START, helper, PUF_SRAM_HELPER_LEN);
-    //DEBUG("\t- Helper data written into EEPROM\n");
-    _set_flag();
-#else
-
-#ifdef USE_N25Q128
-    n25q128_page_program(&n25q128, HELPER_N25Q128_ADDR, helper, PUF_SRAM_HELPER_LEN);
-    //DEBUG("\t- Helper data written into N25Q128\n");
-    // The n25q128 needs a few moment before writing the next one.
-    xtimer_usleep(1000U * US_PER_MS);
     _set_flag(HELPER_FLAG_N25Q128_ADDR);
-#endif /* USE_N25Q128 */
 
-#endif /* USE_EEPROM */
+    DEBUG("\(!)Helper data generated and stored(!)\n");
 }
 
 static inline void _going_into_standby(int seconds)
 {
-    int duration = seconds;
-
     struct tm time = {
         .tm_year = 2020 - 1900,   /* years are counted from 1900 */
         .tm_mon  = 1,             /* 0 = January, 11 = December */
@@ -193,22 +176,17 @@ static inline void _going_into_standby(int seconds)
     rtc_set_time(&time);
 
     /* No need to sleep longer than 60 seconds in this test. */
-    if (duration > 60) {
-        printf("Set duration to 60 seconds\n");
-        duration = 60;
-    }
-
-    time.tm_sec += duration;
+    time.tm_sec += CLAMP(seconds, 0, 60);;
 
     if (time.tm_sec >= 60) {
         time.tm_sec -= 60;
         time.tm_min += 1;
     }
 
-    DEBUG("Set RTC alarm to fire in ~%d seconds, to wake up from standby.\n", duration);
+    //printf("Set RTC alarm to fire in ~%d seconds, to wake up from standby.\n", duration);
     rtc_set_alarm(&time, 0, 0);
 
-    DEBUG("Going into standby now.\n");
+    //printf("Going into standby now..\n");
     pm_set(STM32_PM_STANDBY);
 }
 
@@ -220,24 +198,9 @@ static int cmd_helper(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "clear") == 0) {
-#ifdef USE_EEPROM
-        eeprom_clear(PUF_SRAM_HELPER_EEPROM_START, PUF_SRAM_HELPER_LEN);
-        DEBUG("EEPROM: %d bytes erased from position %d\n", PUF_SRAM_HELPER_LEN, PUF_SRAM_HELPER_EEPROM_START);
-        /* To signalize that the helper data is notid_loops_counter generated. */
-        _clear_flag(EEPROM_FLAG_POS);
-#else
-
-#ifdef USE_N25Q128
-        n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
-        //DEBUG("N25Q128: Sector on address <0x%06x> cleared!\n", HELPER_N25Q128_ADDR);
-        /* Sector erase commands need a few moment, before next erase can be processed. */
-        xtimer_sleep(2);
-        /* To signalize that the helper data is not generated (because it was erased). */
+        _sector_erase(HELPER_N25Q128_ADDR);
         _clear_flag(HELPER_FLAG_N25Q128_ADDR);
         DEBUG("(!)Helper data erased(!)\n");
-#endif /* USE_N25Q128 */
-
-#endif /* USE_EEPROM */
     }
 
     return 0;
@@ -245,11 +208,17 @@ static int cmd_helper(int argc, char **argv)
 
 static int cmd_standby(int argc, char **argv)
 {
+    int duration = 0;
+
     if (argc > 2 || argc < 2) {
         DEBUG("usage: standby <duration_in_seconds>\n");
         return 1;
     }
-    _going_into_standby(atoi(argv[1]));
+
+    duration = atoi(argv[1]);
+
+    _going_into_standby(duration);
+
     return 0;
 }
 
@@ -267,10 +236,8 @@ static int cmd_id(int argc, char **argv)
         puf_sram_delete_secret();
         DEBUG("Secret cleared\n");
     }
-
-    //_print_buf(puf_sram_id, sizeof(puf_sram_id), "cmd_id - ID:");
-    //_print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "cmd_id - Codeoffset(puf_sram.c):");
-
+    _print_buf(puf_sram_id, sizeof(puf_sram_id), "cmd_id - ID:");
+    _print_buf(codeoffset_debug, PUF_SRAM_CODEOFFSET_LEN, "cmd_id - Codeoffset(puf_sram.c):");
     return 0;
 }
 
@@ -278,65 +245,51 @@ static int cmd_bulkerase(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-
-    n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    n25q128_sector_erase(&n25q128, ID_LOOPS_FLAG_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    n25q128_sector_erase(&n25q128, ID_LOOPS_COUNTER_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    n25q128_sector_erase(&n25q128, ID_LOOPS_N_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    // Tooks a couple of minutes ~250 seconds...
-    //n25q128_bulk_erase(&n25q128);
-    printf("done..\n");
+    _wait_for_controller();
+    n25q128_bulk_erase(&n25q128);
+    _wait_for_wip();
     return 0;
 }
 
 static int cmd_id_loop(int argc, char **argv)
 {
-    static uint8_t num_of_buf[1] = {0};
-    static uint8_t counter[1] = {1};
+    static uint8_t lp_n[4] = {0}; // The amount of low power cycles
+    static uint8_t lp_iter[4] = {0}; // The current iteration
 
-    if (argc > 2 || argc < 1) {
-        DEBUG("usage: idloop <number of low-power cycles>");
+    if (argc > 3 || argc < 1) {
+        puts("usage: idloop <N> <y|n>");
         return 1;
     }
 
-    //printf("\n\n cmd_id_loop: setting all up... wait a few seconds\n");
+    if (strcmp(argv[2], "y") == 0) {
+        _sector_erase(HELPER_N25Q128_ADDR);
+        _clear_flag(HELPER_FLAG_N25Q128_ADDR);
+    } else if (strcmp(argv[2], "n") == 0) {
+        // nothing
+    } else {
+        puts("usage: idloop <N> <y|n>");
+        return 1;
+    }
 
-    num_of_buf[0] = atoi(argv[1]);
+    uint32_t n = (uint32_t)atoi(argv[1]);
 
-    // ERASE all needed sectors, just to be sure.
-    n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
+    lp_n[0] = (n & 0xFF000000) >> 24;
+    lp_n[1] = (n & 0x00FF0000) >> 16;
+    lp_n[2] = (n & 0x0000FF00) >> 8;
+    lp_n[3] = (n & 0x000000FF);
 
-    n25q128_sector_erase(&n25q128, ID_LOOPS_FLAG_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
+    // setup flash memory for low power cycle loops
+    _sector_erase(ID_LOOPS_FLAG_ADDR);
+    _sector_erase(ID_LOOPS_ITER_ADDR);
+    _sector_erase(ID_LOOPS_N_ADDR);
 
-    n25q128_sector_erase(&n25q128, ID_LOOPS_COUNTER_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    n25q128_sector_erase(&n25q128, ID_LOOPS_N_ADDR);
-    xtimer_usleep(1000U * US_PER_MS);
-
-    _clear_flag(HELPER_FLAG_N25Q128_ADDR);
-
-    // So the device know it should loop..
     _set_flag(ID_LOOPS_FLAG_ADDR);
 
-    // Set the counter to 0.
-    n25q128_page_program(&n25q128, ID_LOOPS_COUNTER_ADDR, counter, 1);
-    xtimer_usleep(1000U * US_PER_MS);
+    // program the start values for power cycles into the flash mem
+    _page_program(ID_LOOPS_ITER_ADDR, lp_iter, 4);
+    _page_program(ID_LOOPS_N_ADDR, lp_n, 4);
 
-    // program the number of low-power-cycles.
-    n25q128_page_program(&n25q128, ID_LOOPS_N_ADDR, num_of_buf, 1);
-    xtimer_usleep(1000U * US_PER_MS);
-
+    _wait_for_controller();
     _going_into_standby(1);
 
     return 0;
@@ -354,9 +307,8 @@ static const shell_command_t shell_commands[] = {
 int main(void)
 {
     /* Sleep a few seconds to wait for settig up the UART. */
-    xtimer_sleep(MAIN_DELAY);
+    //xtimer_sleep(2);
 
-#ifdef USE_N25Q128
     /* XXX: Specific configuration for iotlab-m3 nodes. */
     n25q128.conf.bus = EXTFLASH_SPI;
     n25q128.conf.mode = SPI_MODE_0;
@@ -364,10 +316,11 @@ int main(void)
     n25q128.conf.cs = EXTFLASH_CS;
     n25q128.conf.write = EXTFLASH_WRITE;
     n25q128.conf.hold = EXTFLASH_HOLD;
+
     if ((n25q128_init(&n25q128) != 0)) {
-        DEBUG("Initialize flash memory driver: N25Q128 [ FAILED! ]\n");
+        puts("\n\n\t FAILED to initialize n25q128 flash memory.");
+        return 0;
     }
-#endif /* USE_N25Q128 */
 
     /*
     if (power_cycle_detected) {
@@ -384,61 +337,54 @@ int main(void)
     }
     */
 
+    // REMEMBER: /core/init.c -> LOG-INFO wieder einfügen..
     if (power_cycle_detected){
-
-        //printf("\n\nLOW-POWER CYCLE:\n");
-
         if (_is_flag_set(ID_LOOPS_FLAG_ADDR)) {
 
-            //printf("Loop-Flag is set\n");
+            uint8_t lp_n[4] = {0};
+            uint8_t lp_iter[4] = {0};
 
-            static uint8_t n[1] = {0};
-            static uint8_t counter[1] = {0};
-
-            n25q128_read_data_bytes(&n25q128, ID_LOOPS_N_ADDR, n, 1);
-            xtimer_usleep(1000U * US_PER_MS);
-            //printf("num of low-power cycles: %d\n", n[0]);
-
-            n25q128_read_data_bytes(&n25q128, ID_LOOPS_COUNTER_ADDR, counter, 1);
-            xtimer_usleep(1000U * US_PER_MS);
-            //printf("cycle iteration no.: %d\n", counter[0]);
-
-            // GEN HELPER; ID; PRINT
             if (!_is_flag_set(HELPER_FLAG_N25Q128_ADDR)) {
                 _gen_helper_data();
-                puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
-                _print_id();
             }
 
-            // Erase helper data
-            n25q128_sector_erase(&n25q128, HELPER_N25Q128_ADDR);
-            xtimer_usleep(1000U * US_PER_MS);
-            _clear_flag(HELPER_FLAG_N25Q128_ADDR);
-            DEBUG("(!)Helper data erased(!)\n");
+            _wait_for_controller();
+            n25q128_read_data_bytes(&n25q128, ID_LOOPS_N_ADDR, lp_n, 4);
 
+            _wait_for_controller();
+            n25q128_read_data_bytes(&n25q128, ID_LOOPS_ITER_ADDR, lp_iter, 4);
 
-            /* Stop, if we reached the amount of low-power-cycles. */
-            if (counter[0] >= n[0]) {
-                printf("\nDone...\n");
+            /* some 'uint32_t to uint8_t and back' magic.. */
+            uint32_t n = lp_n[3] | (lp_n[2] << 8) | (lp_n[1] << 16) | (lp_n[0] << 24);
+            uint32_t i = lp_iter[0] | (lp_iter[1] << 8) | (lp_iter[2] << 16) | (lp_iter[3] << 24);
+            i += 1;
+            lp_iter[3] = (i & 0xFF000000) >> 24;
+            lp_iter[2] = (i & 0x00FF0000) >> 16;
+            lp_iter[1] = (i & 0x0000FF00) >> 8;
+            lp_iter[0] = (i & 0x000000FF);
+
+            printf("n = %ld\n", n);
+            printf("i = %ld\n", i);
+
+            // setup information needed between low power cycles
+            _sector_erase(ID_LOOPS_ITER_ADDR);
+            _page_program(ID_LOOPS_ITER_ADDR, lp_iter, 4);
+
+            puf_sram_generate_secret((uint8_t *)&puf_sram_seed);
+            _print_id();
+
+            // determine if the amount of low power cycles reaches the max
+            if (i < n) {
+                _wait_for_controller();
+                _going_into_standby(1);
+            } else {
                 _clear_flag(ID_LOOPS_FLAG_ADDR);
-                return 0;
+                _sector_erase(ID_LOOPS_ITER_ADDR);
+                _sector_erase(ID_LOOPS_N_ADDR);
             }
-
-            uint32_t cnt = counter[0];
-            cnt += 1;
-            counter[0] = cnt;
-
-            // Needed to increment the counter. First erase, then program...
-            n25q128_sector_erase(&n25q128, ID_LOOPS_COUNTER_ADDR);
-            xtimer_usleep(1000U * US_PER_MS);
-
-            n25q128_page_program(&n25q128, ID_LOOPS_COUNTER_ADDR, counter, 1);
-            xtimer_usleep(1000U * US_PER_MS);
-
-            _going_into_standby(1);
         }
     } else {
-        printf("Softreset detected: waiting for next power cycle (replug the power source!\n");
+        printf("\n\n\t>>Softreset detected: waiting for next power cycle (replug the power source!\n\n");
     }
 
     /* Running the shell. */

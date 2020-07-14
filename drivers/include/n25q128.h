@@ -198,6 +198,8 @@ void n25q128_program_erase_resume(n25q128_dev_t *dev);
  */
 bool n25q128_write_in_progress(n25q128_dev_t *dev);
 
+bool n25q128_program_erase_status(n25q128_dev_t *dev);
+
 #ifdef __cplusplus
 }
 #endif
